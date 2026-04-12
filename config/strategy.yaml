@@ -1,0 +1,80 @@
+# T2-D2 Strategy Configuration
+# Controls how aggressively T2-D2 responds to downtrends.
+
+# Active mode — can be overridden by STRATEGY_MODE env var
+active_mode: mild
+
+modes:
+  mild:
+    description: >
+      Conservative DCA. Only buys on meaningful dips with small position increases.
+      Suitable for stable long-term compounding with minimal risk.
+    # Minimum daily decline before considering a buy
+    min_daily_dip_pct: -3.0
+    # Minimum weekly decline to confirm downtrend
+    min_weekly_dip_pct: -5.0
+    # Maximum additional investment as % of current position value
+    max_position_increase_pct: 5.0
+    # Maximum % of available ISA cash to deploy in a single run
+    max_cash_deploy_pct: 10.0
+    # Order type: market | limit
+    order_type: limit
+    # Limit order: buy at X% below current price
+    limit_discount_pct: 0.5
+    # Don't trade if position already exceeds this % of total portfolio
+    max_portfolio_weight_pct: 10.0
+    # Minimum single trade size (£)
+    min_trade_gbp: 10.0
+
+  moderate:
+    description: >
+      Balanced DCA. Responds to smaller dips with moderate position increases.
+      Good for active rebalancing during volatile periods.
+    min_daily_dip_pct: -2.0
+    min_weekly_dip_pct: -3.0
+    max_position_increase_pct: 10.0
+    max_cash_deploy_pct: 25.0
+    order_type: limit
+    limit_discount_pct: 0.3
+    max_portfolio_weight_pct: 15.0
+    min_trade_gbp: 10.0
+
+  aggressive:
+    description: >
+      Active opportunistic buying. Responds to small dips with larger capital deployment.
+      Higher risk — ensure you have sufficient cash buffer before enabling.
+    min_daily_dip_pct: -1.0
+    min_weekly_dip_pct: -1.5
+    max_position_increase_pct: 20.0
+    max_cash_deploy_pct: 50.0
+    order_type: market
+    limit_discount_pct: 0.0
+    max_portfolio_weight_pct: 20.0
+    min_trade_gbp: 10.0
+
+# Global safety limits — enforced regardless of mode
+global_limits:
+  # Never deploy more than this % of total ISA value in a single run
+  absolute_max_cash_deploy_pct: 50.0
+  # Minimum cash buffer to keep in ISA at all times (£)
+  min_cash_reserve_gbp: 100.0
+  # Maximum number of distinct trades per run
+  max_trades_per_run: 5
+  # Cooldown: don't re-buy a ticker within this many hours of last trade
+  ticker_cooldown_hours: 4
+  # Require both daily AND weekly dip to align before trading
+  require_both_timeframes: false
+
+# Trend analysis settings
+analysis:
+  # Number of days for short-term trend (daily)
+  daily_lookback_days: 5
+  # Number of days for medium-term trend (weekly)
+  weekly_lookback_days: 20
+  # RSI period — avoid buying when RSI is still high (not oversold)
+  rsi_period: 14
+  # Don't buy if RSI is above this (not yet oversold)
+  rsi_max_buy: 55
+  # Simple moving average periods for trend confirmation
+  sma_short: 20
+  sma_long: 50

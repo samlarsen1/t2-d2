@@ -1,0 +1,82 @@
+# T2-D2 Stock Configuration
+# Tickers must match Trading212 instrument codes.
+# Each entry can override global strategy settings per-ticker.
+
+markets:
+  uk:
+    currency: GBP
+    exchange: LSE
+    tickers:
+      - symbol: RIO
+        name: Rio Tinto
+      - symbol: GRG
+        name: Greggs
+      - symbol: VOD
+        name: Vodafone
+        # Per-ticker override: be more cautious on Vodafone
+        strategy_override:
+          mode: mild
+          max_cash_pct: 0.05
+      - symbol: CWR
+        name: Ceres Power
+      - symbol: TRIG
+        name: Renewables Infrastructure Group
+      - symbol: NG.
+        name: National Grid
+      - symbol: ITM
+        name: ITM Power
+      - symbol: UKW
+        name: Greencoat UK Wind
+
+  us:
+    currency: USD
+    exchange: NYSE_NASDAQ
+    tickers:
+      - symbol: GOOGL
+        name: Alphabet A
+      - symbol: HOOD
+        name: Robinhood
+      - symbol: AMZN
+        name: Amazon
+      - symbol: MSFT
+        name: Microsoft
+      - symbol: TSLA
+        name: Tesla
+      - symbol: NET
+        name: Cloudflare
+      - symbol: MU
+        name: Micron
+      - symbol: RKLB
+        name: RocketLab
+      - symbol: AMD
+        name: AMD
+      - symbol: MELI
+        name: Mercado Libre
+      - symbol: SHOP
+        name: Shopify
+      - symbol: BEPC
+        name: Brookfield Renewable
+
+  europe:
+    currency: EUR
+    exchange: XETRA_EURONEXT
+    tickers:
+      - symbol: SAP
+        name: SAP SE
+      - symbol: ASML
+        name: ASML Holding
+      - symbol: MC
+        name: LVMH Moet Hennessy
+      - symbol: SIE
+        name: Siemens AG
+      - symbol: ALV
+        name: Allianz SE
+
+# Global watchlist — tracked but not auto-traded (informational only)
+watchlist:
+  - symbol: SPY
+    name: S&P 500 ETF
+  - symbol: QQQ
+    name: Nasdaq 100 ETF
+  - symbol: VWRP
+    name: Vanguard FTSE All-World ETF (LSE)

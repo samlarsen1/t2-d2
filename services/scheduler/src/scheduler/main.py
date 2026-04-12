@@ -1,0 +1,275 @@
+"""
+T2-D2 Scheduler — Cloud Run Job entrypoint.
+
+Invoked by Cloud Scheduler at configured session times.
+Orchestrates the full trading cycle:
+  1. Validate session / blackout date check
+  2. Fetch account cash + positions
+  3. Pull market data for configured tickers
+  4. Run algo engine to generate decisions
+  5. Execute trades (or dry-run)
+  6. Send push notifications
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import os
+import sys
+from datetime import date, datetime
+from pathlib import Path
+
+import structlog
+import yaml
+from dotenv import load_dotenv
+
+from t2d2_algo import AlgoEngine, RunResult, TradeExecutor, load_strategy_config
+from t2d2_algo.strategies.base import TradeDecision
+from t2d2_client import Trading212Client
+from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
+from t2d2_market_data.providers.yahoo import to_yahoo_ticker
+from t2d2_notifier import FCMNotifier, TradeNotification
+
+load_dotenv()
+
+# Root of the repository
+REPO_ROOT = Path(__file__).parents[4]
+CONFIG_DIR = REPO_ROOT / "config"
+
+log = structlog.get_logger()
+
+
+def setup_logging() -> None:
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    structlog.configure(
+        wrapper_class=structlog.make_filtering_bound_logger(
+            getattr(logging, log_level, logging.INFO)
+        ),
+    )
+
+
+def load_stocks_config() -> dict:
+    with open(CONFIG_DIR / "stocks.yaml") as f:
+        return yaml.safe_load(f)
+
+
+def load_schedules_config() -> dict:
+    with open(CONFIG_DIR / "schedules.yaml") as f:
+        return yaml.safe_load(f)
+
+
+def is_blackout(session_cfg: dict, markets: list[str]) -> bool:
+    """Return True if today is a blackout date for any of the session's markets."""
+    schedules = load_schedules_config()
+    blackouts = schedules.get("blackout_dates", {})
+    today = date.today().isoformat()
+    for market in markets:
+        if today in blackouts.get(market, []):
+            log.info("blackout_date", market=market, date=today)
+            return True
+    return False
+
+
+def get_tickers_for_session(stocks: dict, markets: list[str]) -> list[tuple[str, str]]:
+    """Return [(t212_ticker, market)] for the given markets."""
+    result = []
+    for market in markets:
+        market_cfg = stocks.get("markets", {}).get(market, {})
+        for ticker_entry in market_cfg.get("tickers", []):
+            result.append((ticker_entry["symbol"], market))
+    return result
+
+
+async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
+    api_key = os.environ["T212_API_KEY"]
+    api_secret = os.environ["T212_API_SECRET"]
+    base_url = os.getenv("T212_BASE_URL", "https://live.trading212.com")
+    strategy_mode = os.getenv("STRATEGY_MODE")
+    firebase_creds = os.getenv("FIREBASE_CREDENTIALS")
+    fcm_topic = os.getenv("FCM_TOPIC", "t2d2-trades")
+    webhook_url = os.getenv("WEBHOOK_URL")
+
+    schedules = load_schedules_config()
+    session_cfg = schedules["sessions"].get(session)
+    if not session_cfg:
+        raise ValueError(f"Unknown session: {session}")
+
+    if not session_cfg.get("enabled", True):
+        log.info("session_disabled", session=session)
+        return RunResult(
+            session=session,
+            strategy_mode=strategy_mode or "unknown",
+            available_cash_gbp=0.0,
+        )
+
+    markets: list[str] = session_cfg["markets"]
+    action: str = session_cfg.get("action", "trade")
+
+    if is_blackout(session_cfg, markets):
+        log.info("skipping_blackout", session=session)
+        return RunResult(session=session, strategy_mode=strategy_mode or "unknown", available_cash_gbp=0.0)
+
+    strategy_config = load_strategy_config(CONFIG_DIR, strategy_mode)
+    stocks_cfg = load_stocks_config()
+
+    notifier = FCMNotifier(
+        credentials_path=firebase_creds,
+        topic=fcm_topic,
+        webhook_url=webhook_url,
+    )
+
+    async with Trading212Client(api_key=api_key, api_secret=api_secret, base_url=base_url) as client:
+        # Fetch account state
+        cash = await client.get_account_cash()
+        positions = await client.get_positions()
+        available_cash = float(cash.free)
+        total_portfolio = float(cash.invested) + available_cash
+
+        log.info(
+            "account_state",
+            free_cash=available_cash,
+            invested=float(cash.invested),
+            positions=len(positions),
+        )
+
+        result = RunResult(
+            session=session,
+            strategy_mode=strategy_config.mode,
+            available_cash_gbp=available_cash,
+            dry_run=dry_run,
+        )
+
+        # Report-only sessions
+        if action == "report":
+            notifier.send_session_report(
+                session=session,
+                trades_count=0,
+                total_deployed=0.0,
+                cash_remaining=available_cash,
+            )
+            return result
+
+        # Fetch market data for session tickers
+        tickers = get_tickers_for_session(stocks_cfg, markets)
+        log.info("fetching_market_data", ticker_count=len(tickers), session=session)
+
+        provider = YahooFinanceProvider()
+        period_days = max(
+            strategy_config.daily_lookback_days,
+            strategy_config.weekly_lookback_days,
+        ) + 5  # buffer
+
+        ohlcv_data = await provider.fetch_multiple(tickers, period_days=period_days)
+        analyser = TrendAnalyser()
+        signals = analyser.analyse_many(ohlcv_data)
+
+        log.info("signals_computed", count=len(signals))
+
+        # Build position lookup
+        position_map = {p.ticker: p for p in positions}
+
+        # Evaluate each signal
+        engine = AlgoEngine(strategy_config)
+        decisions: list[TradeDecision] = []
+
+        for t212_ticker, market in tickers:
+            if t212_ticker not in signals:
+                log.warning("no_signal", ticker=t212_ticker)
+                continue
+
+            signal = signals[t212_ticker]
+            position = position_map.get(t212_ticker)
+
+            # Check per-ticker strategy override
+            market_cfg = stocks_cfg["markets"][market]
+            ticker_cfg = next(
+                (t for t in market_cfg["tickers"] if t["symbol"] == t212_ticker), {}
+            )
+            override = ticker_cfg.get("strategy_override")
+
+            decision = engine.evaluate(
+                signal=signal,
+                position=position,
+                available_cash=available_cash,
+                total_portfolio_value=total_portfolio,
+                ticker_override=override,
+            )
+            decisions.append(decision)
+            log.debug("decision", ticker=t212_ticker, trade=decision.should_trade, reason=decision.reason)
+
+        result.decisions = decisions
+
+        # Rank and cap
+        ranked = engine.rank_decisions(decisions)
+        log.info("ranked_trades", count=len(ranked))
+
+        # Execute
+        executor = TradeExecutor(client=client, config=strategy_config, dry_run=dry_run)
+
+        for decision in ranked:
+            success = await executor.execute(decision)
+            if success:
+                result.executed_trades.append(decision)
+                available_cash -= decision.trade_value_gbp
+
+                notif = TradeNotification(
+                    ticker=decision.ticker,
+                    action="BUY",
+                    value_gbp=decision.trade_value_gbp,
+                    price=decision.current_price,
+                    daily_change_pct=decision.daily_change_pct,
+                    weekly_change_pct=decision.weekly_change_pct,
+                    session=session,
+                    strategy_mode=strategy_config.mode,
+                    dry_run=dry_run,
+                )
+                notifier.send_trade(notif)
+
+        log.info("run_complete", **{
+            "session": session,
+            "trades": len(result.executed_trades),
+            "deployed_gbp": result.total_deployed_gbp,
+        })
+
+        if result.executed_trades:
+            notifier.send_session_report(
+                session=session,
+                trades_count=len(result.executed_trades),
+                total_deployed=result.total_deployed_gbp,
+                cash_remaining=available_cash,
+            )
+
+    return result
+
+
+def main() -> None:
+    setup_logging()
+
+    parser = argparse.ArgumentParser(description="T2-D2 Trading Scheduler")
+    parser.add_argument(
+        "--session",
+        required=True,
+        choices=["eu_morning", "eu_afternoon", "us_morning", "us_afternoon", "daily_close_wrap"],
+        help="Trading session to run",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=os.getenv("DRY_RUN", "true").lower() == "true",
+        help="Simulate trades without placing orders (default: true)",
+    )
+
+    args = parser.parse_args()
+
+    log.info("t2d2_starting", session=args.session, dry_run=args.dry_run)
+
+    result = asyncio.run(run_trading_cycle(args.session, args.dry_run))
+    print(result.summary())
+
+    if result.errors:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
