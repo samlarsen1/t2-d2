@@ -81,6 +81,18 @@ cp .env.example .env
 uv run python -m scheduler.main --session eu_morning --dry-run
 ```
 
+### Development
+
+```bash
+# Install and enable pre-commit hooks (run once after cloning)
+uv sync
+pre-commit install
+
+# Hooks run automatically on commit: ruff, mypy, pytest
+# To run manually against all files:
+pre-commit run --all-files
+```
+
 ### GCP Deployment
 
 ```bash
