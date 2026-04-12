@@ -186,7 +186,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                 and o.status not in _skip_statuses
             }
         except Exception as e:
-            log.warning("order_history_unavailable", error=str(e))
+            log.warning("order_history_unavailable", error_type=type(e).__name__)
 
         # Also check pending orders (catches limit orders not yet filled)
         pending_orders = await client.get_all_orders()
