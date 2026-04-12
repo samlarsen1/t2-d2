@@ -16,6 +16,7 @@ from tenacity import (
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
+    wait_random,
 )
 
 from .models import (
@@ -33,13 +34,17 @@ logger = logging.getLogger(__name__)
 LIVE_BASE_URL = "https://live.trading212.com"
 DEMO_BASE_URL = "https://demo.trading212.com"
 
-_RETRYABLE = (httpx.TimeoutException, httpx.NetworkError)
-
-
 class Trading212Error(Exception):
     def __init__(self, status_code: int, message: str) -> None:
         self.status_code = status_code
         super().__init__(f"Trading212 API error {status_code}: {message}")
+
+
+class _RateLimitedError(Exception):
+    """Internal signal used by tenacity to trigger retry on HTTP 429."""
+
+
+_RETRYABLE = (httpx.TimeoutException, httpx.NetworkError, _RateLimitedError)
 
 
 class Trading212Client:
@@ -73,13 +78,17 @@ class Trading212Client:
 
     @retry(
         retry=retry_if_exception_type(_RETRYABLE),
-        wait=wait_exponential(multiplier=1, min=2, max=30),
-        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=2, min=2, max=60) + wait_random(0, 2),
+        stop=stop_after_attempt(4),
+        reraise=False,
     )
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         response = await self._client.request(method, path, **kwargs)
         if response.status_code == 429:
-            raise Trading212Error(429, "Rate limited — back off and retry")
+            retry_after = response.headers.get("Retry-After")
+            suffix = f"; retry after {retry_after}s" if retry_after else ""
+            logger.warning("Rate limited by T212 (429)%s", suffix)
+            raise _RateLimitedError("rate limited")
         if not response.is_success:
             try:
                 detail = response.json()
