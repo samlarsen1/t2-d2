@@ -60,4 +60,4 @@ apps/android/app/google-services.json
 logs/
 
 # Docker
-.dockerignore
+# .dockerignore intentionally tracked in repo
