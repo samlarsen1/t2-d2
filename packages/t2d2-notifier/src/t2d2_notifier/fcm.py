@@ -6,13 +6,42 @@ Also supports optional webhook delivery for external integrations.
 """
 from __future__ import annotations
 
+import ipaddress
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+_ALLOWED_SCHEMES = {"https"}
+_BLOCKED_HOSTS = {
+    "localhost",
+    "169.254.169.254",  # GCP/AWS metadata service
+    "metadata.google.internal",
+}
+
+
+def _validate_webhook_url(url: str) -> None:
+    """Raise ValueError if the URL is not safe to POST to."""
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_SCHEMES:
+        raise ValueError(f"Webhook URL scheme must be https, got: {parsed.scheme!r}")
+    host = parsed.hostname or ""
+    if not host:
+        raise ValueError("Webhook URL has no host")
+    if host.lower() in _BLOCKED_HOSTS:
+        raise ValueError(f"Webhook URL host is blocked: {host!r}")
+    try:
+        addr = ipaddress.ip_address(host)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError(f"Webhook URL resolves to a non-public IP: {host!r}")
+    except ValueError as exc:
+        # ip_address() raises ValueError for hostnames — only re-raise our own checks
+        if "Webhook URL" in str(exc):
+            raise
 
 try:
     import firebase_admin
@@ -73,6 +102,9 @@ class FCMNotifier:
         self.topic = topic
         self.webhook_url = webhook_url
         self._initialized = False
+
+        if webhook_url:
+            _validate_webhook_url(webhook_url)
 
         if not FIREBASE_AVAILABLE:
             return
@@ -135,7 +167,7 @@ class FCMNotifier:
         try:
             resp = httpx.post(self.webhook_url, json=payload, timeout=10.0)  # type: ignore[arg-type]
             resp.raise_for_status()
-            logger.info("Webhook delivered to %s", self.webhook_url)
+            logger.info("Webhook delivered")
         except Exception as e:
             logger.warning("Webhook delivery failed: %s", e)
 
