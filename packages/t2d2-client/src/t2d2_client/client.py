@@ -18,7 +18,15 @@ from tenacity import (
     wait_exponential,
 )
 
-from .models import AccountCash, AccountMetadata, HistoricalOrder, Order, OrderType, Position, TimeValidity
+from .models import (
+    AccountCash,
+    AccountMetadata,
+    HistoricalOrder,
+    Order,
+    OrderType,
+    Position,
+    TimeValidity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +62,7 @@ class Trading212Client:
             timeout=timeout,
         )
 
-    async def __aenter__(self) -> "Trading212Client":
+    async def __aenter__(self) -> Trading212Client:
         return self
 
     async def __aexit__(self, *args: Any) -> None:
@@ -163,7 +171,9 @@ class Trading212Client:
         if position is None:
             # No existing position — fetch current price from a separate call
             # For now, raise — caller should pre-fetch price
-            raise ValueError(f"No position found for {ticker}; cannot derive share price for value order")
+            raise ValueError(
+                f"No position found for {ticker}; cannot derive share price for value order"
+            )
 
         current_price = float(position.current_price)
         quantity = value_gbp / current_price

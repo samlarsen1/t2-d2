@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date, timedelta
-from functools import lru_cache
 
 import pandas as pd
 import yfinance as yf

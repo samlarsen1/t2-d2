@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import httpx
 
@@ -84,7 +83,9 @@ class FCMNotifier:
                 firebase_admin.initialize_app(cred)
             self._initialized = True
         elif credentials_path and not Path(credentials_path).exists():
-            logger.warning("Firebase credentials not found at %s — notifications disabled", credentials_path)
+            logger.warning(
+                "Firebase credentials not found at %s — notifications disabled", credentials_path
+            )
 
     def send_trade(self, notification: TradeNotification) -> None:
         """Send a trade notification via FCM topic broadcast."""
@@ -93,7 +94,11 @@ class FCMNotifier:
         if FIREBASE_AVAILABLE and self._initialized:
             self._send_fcm(notification)
         else:
-            logger.info("FCM not available — notification logged only: %s %s", notification.title(), notification.body())
+            logger.info(
+                "FCM not available — notification logged only: %s %s",
+                notification.title(),
+                notification.body(),
+            )
 
         if self.webhook_url:
             self._send_webhook(notification)
@@ -142,7 +147,7 @@ class FCMNotifier:
         cash_remaining: float,
     ) -> None:
         """Send an end-of-session summary notification."""
-        notif = TradeNotification(
+        TradeNotification(
             ticker="PORTFOLIO",
             action="REPORT",
             value_gbp=total_deployed,

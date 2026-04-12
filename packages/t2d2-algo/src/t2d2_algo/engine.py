@@ -8,13 +8,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import yaml
-
-from t2d2_client import AccountCash, Position, Trading212Client
-from t2d2_client.models import OrderType, TimeValidity
+from t2d2_client import Position, Trading212Client
+from t2d2_client.models import TimeValidity
 from t2d2_market_data.analysis import TrendSignal
 
 from .strategies.base import StrategyConfig, TradeDecision
@@ -98,7 +97,7 @@ class AlgoEngine:
         position: Position | None,
         available_cash: float,
         total_portfolio_value: float,
-        ticker_override: dict | None = None,
+        ticker_override: dict[str, Any] | None = None,
         recently_traded: set[str] | None = None,
     ) -> TradeDecision:
         """
@@ -158,7 +157,8 @@ class AlgoEngine:
         # 2. Weekly dip threshold (optional gating)
         if cfg.require_both_timeframes and signal.weekly_change_pct > cfg.min_weekly_dip_pct:
             return skip(
-                f"Weekly change {signal.weekly_change_pct:+.2f}% above threshold {cfg.min_weekly_dip_pct:+.2f}%"
+                f"Weekly change {signal.weekly_change_pct:+.2f}% "
+                f"above threshold {cfg.min_weekly_dip_pct:+.2f}%"
             )
 
         # 3. RSI gate — don't buy if momentum isn't oversold yet
@@ -167,7 +167,10 @@ class AlgoEngine:
 
         # 4. Cash reserve check
         if available_cash <= cfg.min_cash_reserve_gbp:
-            return skip(f"Insufficient cash (£{available_cash:.2f} ≤ reserve £{cfg.min_cash_reserve_gbp:.2f})")
+            return skip(
+                f"Insufficient cash "
+                f"(£{available_cash:.2f} ≤ reserve £{cfg.min_cash_reserve_gbp:.2f})"
+            )
 
         # --- Size the trade ---
 
@@ -230,7 +233,7 @@ class AlgoEngine:
 class TradeExecutor:
     """Executes ranked decisions against the Trading212 API."""
 
-    def __init__(self, client: Trading212Client, config: StrategyConfig, dry_run: bool = False) -> None:
+    def __init__(self, client: Trading212Client, config: StrategyConfig, dry_run: bool = False) -> None:  # noqa: E501
         self.client = client
         self.config = config
         self.dry_run = dry_run

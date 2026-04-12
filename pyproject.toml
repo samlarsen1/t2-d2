@@ -7,6 +7,15 @@ members = [
     "services/scheduler",
 ]
 
+[tool.uv]
+dev-dependencies = [
+    "mypy>=1.10",
+    "ruff>=0.4",
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "types-PyYAML>=6.0",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"

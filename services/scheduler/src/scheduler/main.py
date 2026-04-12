@@ -17,19 +17,18 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import date, datetime, timezone, timedelta
+from typing import Any
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import structlog
 import yaml
 from dotenv import load_dotenv
-
 from t2d2_algo import AlgoEngine, RunResult, TradeExecutor, load_strategy_config
 from t2d2_algo.strategies.base import TradeDecision
 from t2d2_client import Trading212Client
 from t2d2_client.models import OrderStatus
 from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
-from t2d2_market_data.providers.yahoo import to_yahoo_ticker
 from t2d2_notifier import FCMNotifier, TradeNotification
 
 load_dotenv()
@@ -50,17 +49,17 @@ def setup_logging() -> None:
     )
 
 
-def load_stocks_config() -> dict:
+def load_stocks_config() -> dict[str, Any]:
     with open(CONFIG_DIR / "stocks.yaml") as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f)  # type: ignore[no-any-return]
 
 
-def load_schedules_config() -> dict:
+def load_schedules_config() -> dict[str, Any]:
     with open(CONFIG_DIR / "schedules.yaml") as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f)  # type: ignore[no-any-return]
 
 
-def is_blackout(session_cfg: dict, markets: list[str]) -> bool:
+def is_blackout(session_cfg: dict[str, Any], markets: list[str]) -> bool:
     """Return True if today is a blackout date for any of the session's markets."""
     schedules = load_schedules_config()
     blackouts = schedules.get("blackout_dates", {})
@@ -72,7 +71,7 @@ def is_blackout(session_cfg: dict, markets: list[str]) -> bool:
     return False
 
 
-def get_tickers_for_session(stocks: dict, markets: list[str]) -> list[tuple[str, str, str]]:
+def get_tickers_for_session(stocks: dict[str, Any], markets: list[str]) -> list[tuple[str, str, str]]:
     """Return [(symbol, t212_ticker, market)] for the given markets."""
     result = []
     for market in markets:
@@ -111,7 +110,9 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
     if is_blackout(session_cfg, markets):
         log.info("skipping_blackout", session=session)
-        return RunResult(session=session, strategy_mode=strategy_mode or "unknown", available_cash_gbp=0.0)
+        return RunResult(
+            session=session, strategy_mode=strategy_mode or "unknown", available_cash_gbp=0.0
+        )
 
     strategy_config = load_strategy_config(CONFIG_DIR, strategy_mode)
     stocks_cfg = load_stocks_config()
@@ -122,7 +123,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
         webhook_url=webhook_url,
     )
 
-    async with Trading212Client(api_key=api_key, api_secret=api_secret, base_url=base_url) as client:
+    async with Trading212Client(api_key=api_key, api_secret=api_secret, base_url=base_url) as client:  # noqa: E501
         # Fetch account state
         cash = await client.get_account_cash()
         positions = await client.get_positions()
@@ -165,7 +166,9 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
         # Build cooldown set from recent order history + pending orders
         t212_to_symbol = {t212: sym for sym, t212, _ in tickers}
-        cooldown_cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=strategy_config.ticker_cooldown_hours)
+        cooldown_cutoff = datetime.now(tz=UTC) - timedelta(
+            hours=strategy_config.ticker_cooldown_hours
+        )
         _skip_statuses = {OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.CANCELLING}
         recently_traded: set[str] = set()
 
@@ -195,7 +198,11 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
         }
 
         if recently_traded:
-            log.info("cooldown_active", tickers=sorted(recently_traded), hours=strategy_config.ticker_cooldown_hours)
+            log.info(
+                "cooldown_active",
+                tickers=sorted(recently_traded),
+                hours=strategy_config.ticker_cooldown_hours,
+            )
 
         yahoo_tickers = [(symbol, market) for symbol, _t212, market in tickers]
         ohlcv_data = await provider.fetch_multiple(yahoo_tickers, period_days=period_days)
@@ -221,7 +228,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
             # Check per-ticker strategy override
             market_cfg = stocks_cfg["markets"][market]
-            ticker_cfg = next(
+            ticker_cfg: dict[str, Any] = next(
                 (t for t in market_cfg["tickers"] if t["symbol"] == symbol), {}
             )
             override = ticker_cfg.get("strategy_override")
@@ -236,7 +243,9 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
             )
             decision.t212_ticker = t212_ticker
             decisions.append(decision)
-            log.debug("decision", ticker=symbol, trade=decision.should_trade, reason=decision.reason)
+            log.debug(
+                "decision", ticker=symbol, trade=decision.should_trade, reason=decision.reason
+            )
 
         result.decisions = decisions
 
