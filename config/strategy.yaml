@@ -16,7 +16,7 @@ modes:
     # Maximum additional investment as % of current position value
     max_position_increase_pct: 5.0
     # Maximum % of available ISA cash to deploy in a single run
-    max_cash_deploy_pct: 10.0
+    max_cash_deploy_pct: 5.0
     # Order type: market | limit
     order_type: limit
     # Limit order: buy at X% below current price
@@ -33,10 +33,10 @@ modes:
     min_daily_dip_pct: -2.0
     min_weekly_dip_pct: -3.0
     max_position_increase_pct: 10.0
-    max_cash_deploy_pct: 25.0
+    max_cash_deploy_pct: 10.0
     order_type: limit
     limit_discount_pct: 0.3
-    max_portfolio_weight_pct: 15.0
+    max_portfolio_weight_pct: 12.5
     min_trade_gbp: 10.0
 
   aggressive:
@@ -45,11 +45,11 @@ modes:
       Higher risk — ensure you have sufficient cash buffer before enabling.
     min_daily_dip_pct: -1.0
     min_weekly_dip_pct: -1.5
-    max_position_increase_pct: 20.0
-    max_cash_deploy_pct: 50.0
+    max_position_increase_pct: 15.0
+    max_cash_deploy_pct: 15.0
     order_type: market
     limit_discount_pct: 0.0
-    max_portfolio_weight_pct: 20.0
+    max_portfolio_weight_pct: 17.5
     min_trade_gbp: 10.0
 
 # Global safety limits — enforced regardless of mode
@@ -59,18 +59,18 @@ global_limits:
   # Minimum cash buffer to keep in ISA at all times (£)
   min_cash_reserve_gbp: 100.0
   # Maximum number of distinct trades per run
-  max_trades_per_run: 5
+  max_trades_per_run: 2
   # Cooldown: don't re-buy a ticker within this many hours of last trade
-  ticker_cooldown_hours: 4
+  ticker_cooldown_hours: 72
   # Require both daily AND weekly dip to align before trading
   require_both_timeframes: false
 
 # Trend analysis settings
 analysis:
   # Number of days for short-term trend (daily)
-  daily_lookback_days: 5
+  daily_lookback_days: 10
   # Number of days for medium-term trend (weekly)
-  weekly_lookback_days: 20
+  weekly_lookback_days: 30
   # RSI period — avoid buying when RSI is still high (not oversold)
   rsi_period: 14
   # Don't buy if RSI is above this (not yet oversold)

@@ -99,6 +99,7 @@ class AlgoEngine:
         available_cash: float,
         total_portfolio_value: float,
         ticker_override: dict | None = None,
+        recently_traded: set[str] | None = None,
     ) -> TradeDecision:
         """
         Evaluate a single ticker's signal and decide whether to trade.
@@ -143,6 +144,10 @@ class AlgoEngine:
             )
 
         # --- Gate checks ---
+
+        # 0. Ticker cooldown
+        if recently_traded and ticker in recently_traded:
+            return skip(f"Cooldown: traded within last {cfg.ticker_cooldown_hours}h")
 
         # 1. Daily dip threshold
         if signal.daily_change_pct > min_daily:
@@ -235,21 +240,23 @@ class TradeExecutor:
             logger.info("[DRY RUN] Would execute: %s", decision)
             return True
 
+        t212_ticker = decision.t212_ticker or decision.ticker
+
         try:
             if self.config.order_type == "limit" and decision.limit_price:
                 # Estimate quantity from value
                 quantity = decision.trade_value_gbp / decision.current_price
                 await self.client.place_limit_order(
-                    ticker=decision.ticker,
-                    quantity=round(quantity, 6),
+                    ticker=t212_ticker,
+                    quantity=round(quantity, 4),
                     limit_price=decision.limit_price,
                     time_validity=TimeValidity.DAY,
                 )
             else:
                 quantity = decision.trade_value_gbp / decision.current_price
                 await self.client.place_market_order(
-                    ticker=decision.ticker,
-                    quantity=round(quantity, 6),
+                    ticker=t212_ticker,
+                    quantity=round(quantity, 4),
                 )
             logger.info("Executed: %s", decision)
             return True

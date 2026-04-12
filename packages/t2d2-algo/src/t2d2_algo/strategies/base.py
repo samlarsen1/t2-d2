@@ -42,6 +42,7 @@ class TradeDecision:
     rsi: float
     current_price: float
     limit_price: float | None = None
+    t212_ticker: str | None = None  # T212 instrument code, falls back to ticker if unset
 
     def __str__(self) -> str:
         if self.should_trade:

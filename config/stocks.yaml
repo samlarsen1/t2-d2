@@ -8,54 +8,93 @@ markets:
     exchange: LSE
     tickers:
       - symbol: RIO
+        t212_ticker: RIOl_EQ
         name: Rio Tinto
+        strategy_override:
+          mode: moderate
       - symbol: GRG
+        t212_ticker: GRGl_EQ
         name: Greggs
       - symbol: VOD
+        t212_ticker: VODl_EQ
         name: Vodafone
-        # Per-ticker override: be more cautious on Vodafone
-        strategy_override:
-          mode: mild
-          max_cash_pct: 0.05
       - symbol: CWR
+        t212_ticker: CWRl_EQ
         name: Ceres Power
       - symbol: TRIG
+        t212_ticker: TRIGl_EQ
         name: Renewables Infrastructure Group
       - symbol: NG.
+        t212_ticker: NGl_EQ
         name: National Grid
+        strategy_override:
+          mode: moderate
       - symbol: ITM
+        t212_ticker: ITMl_EQ
         name: ITM Power
+        strategy_override:
+          mode: moderate
       - symbol: UKW
+        t212_ticker: UKWl_EQ
         name: Greencoat UK Wind
+        strategy_override:
+          mode: moderate
 
   us:
     currency: USD
     exchange: NYSE_NASDAQ
     tickers:
       - symbol: GOOGL
+        t212_ticker: GOOGL_US_EQ
         name: Alphabet A
+        strategy_override:
+          mode: moderate
       - symbol: HOOD
+        t212_ticker: HOOD_US_EQ
         name: Robinhood
+        strategy_override:
+          mode: moderate
       - symbol: AMZN
+        t212_ticker: AMZN_US_EQ
         name: Amazon
       - symbol: MSFT
+        t212_ticker: MSFT_US_EQ
         name: Microsoft
       - symbol: TSLA
+        t212_ticker: TSLA_US_EQ
         name: Tesla
+        strategy_override:
+          mode: moderate
       - symbol: NET
+        t212_ticker: NET_US_EQ
         name: Cloudflare
       - symbol: MU
+        t212_ticker: MU_US_EQ
         name: Micron
+        strategy_override:
+          mode: moderate
       - symbol: RKLB
+        t212_ticker: VACQ_US_EQ
         name: RocketLab
       - symbol: AMD
+        t212_ticker: AMD_US_EQ
         name: AMD
+        strategy_override:
+          mode: moderate
       - symbol: MELI
+        t212_ticker: MELI_US_EQ
         name: Mercado Libre
+        strategy_override:
+          mode: moderate
       - symbol: SHOP
+        t212_ticker: SHOP_US_EQ
         name: Shopify
       - symbol: BEPC
+        t212_ticker: BEPC_US_EQ
         name: Brookfield Renewable
+      - symbol: NVDA
+        t212_ticker: NVDA_US_EQ
+        name: NVIDIA
 
   europe:
     currency: EUR

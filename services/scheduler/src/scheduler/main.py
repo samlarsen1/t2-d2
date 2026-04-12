@@ -17,7 +17,7 @@ import asyncio
 import logging
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
 import structlog
@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 from t2d2_algo import AlgoEngine, RunResult, TradeExecutor, load_strategy_config
 from t2d2_algo.strategies.base import TradeDecision
 from t2d2_client import Trading212Client
+from t2d2_client.models import OrderStatus
 from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
 from t2d2_market_data.providers.yahoo import to_yahoo_ticker
 from t2d2_notifier import FCMNotifier, TradeNotification
@@ -71,13 +72,15 @@ def is_blackout(session_cfg: dict, markets: list[str]) -> bool:
     return False
 
 
-def get_tickers_for_session(stocks: dict, markets: list[str]) -> list[tuple[str, str]]:
-    """Return [(t212_ticker, market)] for the given markets."""
+def get_tickers_for_session(stocks: dict, markets: list[str]) -> list[tuple[str, str, str]]:
+    """Return [(symbol, t212_ticker, market)] for the given markets."""
     result = []
     for market in markets:
         market_cfg = stocks.get("markets", {}).get(market, {})
         for ticker_entry in market_cfg.get("tickers", []):
-            result.append((ticker_entry["symbol"], market))
+            symbol = ticker_entry["symbol"]
+            t212_ticker = ticker_entry.get("t212_ticker", symbol)
+            result.append((symbol, t212_ticker, market))
     return result
 
 
@@ -160,31 +163,65 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
             strategy_config.weekly_lookback_days,
         ) + 5  # buffer
 
-        ohlcv_data = await provider.fetch_multiple(tickers, period_days=period_days)
+        # Build cooldown set from recent order history + pending orders
+        t212_to_symbol = {t212: sym for sym, t212, _ in tickers}
+        cooldown_cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=strategy_config.ticker_cooldown_hours)
+        _skip_statuses = {OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.CANCELLING}
+        recently_traded: set[str] = set()
+
+        # Check order history (may be unavailable on demo accounts)
+        try:
+            recent_orders = await client.get_order_history(limit=50)
+            recently_traded |= {
+                t212_to_symbol[o.ticker]
+                for o in recent_orders
+                if o.ticker in t212_to_symbol
+                and o.creation_time >= cooldown_cutoff
+                and o.status not in _skip_statuses
+            }
+        except Exception as e:
+            log.warning("order_history_unavailable", error=str(e))
+
+        # Also check pending orders (catches limit orders not yet filled)
+        pending_orders = await client.get_all_orders()
+        recently_traded |= {
+            t212_to_symbol[o.ticker]
+            for o in pending_orders
+            if o.ticker in t212_to_symbol
+            and o.creation_time is not None
+            and o.creation_time >= cooldown_cutoff
+            and o.status not in _skip_statuses
+        }
+
+        if recently_traded:
+            log.info("cooldown_active", tickers=sorted(recently_traded), hours=strategy_config.ticker_cooldown_hours)
+
+        yahoo_tickers = [(symbol, market) for symbol, _t212, market in tickers]
+        ohlcv_data = await provider.fetch_multiple(yahoo_tickers, period_days=period_days)
         analyser = TrendAnalyser()
         signals = analyser.analyse_many(ohlcv_data)
 
         log.info("signals_computed", count=len(signals))
 
-        # Build position lookup
+        # Build position lookup by T212 ticker
         position_map = {p.ticker: p for p in positions}
 
         # Evaluate each signal
         engine = AlgoEngine(strategy_config)
         decisions: list[TradeDecision] = []
 
-        for t212_ticker, market in tickers:
-            if t212_ticker not in signals:
-                log.warning("no_signal", ticker=t212_ticker)
+        for symbol, t212_ticker, market in tickers:
+            if symbol not in signals:
+                log.warning("no_signal", ticker=symbol)
                 continue
 
-            signal = signals[t212_ticker]
+            signal = signals[symbol]
             position = position_map.get(t212_ticker)
 
             # Check per-ticker strategy override
             market_cfg = stocks_cfg["markets"][market]
             ticker_cfg = next(
-                (t for t in market_cfg["tickers"] if t["symbol"] == t212_ticker), {}
+                (t for t in market_cfg["tickers"] if t["symbol"] == symbol), {}
             )
             override = ticker_cfg.get("strategy_override")
 
@@ -194,9 +231,11 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                 available_cash=available_cash,
                 total_portfolio_value=total_portfolio,
                 ticker_override=override,
+                recently_traded=recently_traded,
             )
+            decision.t212_ticker = t212_ticker
             decisions.append(decision)
-            log.debug("decision", ticker=t212_ticker, trade=decision.should_trade, reason=decision.reason)
+            log.debug("decision", ticker=symbol, trade=decision.should_trade, reason=decision.reason)
 
         result.decisions = decisions
 

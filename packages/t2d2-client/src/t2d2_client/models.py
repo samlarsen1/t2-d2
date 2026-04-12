@@ -91,7 +91,7 @@ class Order(BaseModel):
     stop_price: Decimal | None = Field(None, alias="stopPrice")
     value: Decimal | None = None  # For value-based orders (£ amount)
     time_validity: TimeValidity = Field(TimeValidity.DAY, alias="timeValidity")
-    creation_time: datetime | None = Field(None, alias="creationTime")
+    creation_time: datetime | None = Field(None, alias="createdAt")
     date_modified: datetime | None = Field(None, alias="dateModified")
     taxes: list[Any] = Field(default_factory=list)
 
