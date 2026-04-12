@@ -17,9 +17,9 @@ import asyncio
 import logging
 import os
 import sys
-from typing import Any
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import structlog
 import yaml
@@ -71,7 +71,9 @@ def is_blackout(session_cfg: dict[str, Any], markets: list[str]) -> bool:
     return False
 
 
-def get_tickers_for_session(stocks: dict[str, Any], markets: list[str]) -> list[tuple[str, str, str]]:
+def get_tickers_for_session(
+    stocks: dict[str, Any], markets: list[str]
+) -> list[tuple[str, str, str]]:
     """Return [(symbol, t212_ticker, market)] for the given markets."""
     result = []
     for market in markets:

@@ -1,8 +1,6 @@
 """Smoke tests for AlgoEngine decision logic."""
 from __future__ import annotations
 
-import pytest
-
 from t2d2_algo.engine import AlgoEngine
 from t2d2_algo.strategies.base import StrategyConfig
 from t2d2_market_data.analysis import TrendSignal

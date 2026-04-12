@@ -1,0 +1,24 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.10
+    hooks:
+      - id: ruff
+        args: [--fix]
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: .venv/bin/python -m mypy
+        args: [packages/, services/]
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      - id: pytest
+        name: pytest
+        entry: .venv/bin/python -m pytest
+        args: [-v]
+        language: system
+        pass_filenames: false
+        types: [python]
