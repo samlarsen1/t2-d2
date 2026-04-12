@@ -176,6 +176,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                 t212_to_symbol[o.ticker]
                 for o in recent_orders
                 if o.ticker in t212_to_symbol
+                and o.creation_time is not None
                 and o.creation_time >= cooldown_cutoff
                 and o.status not in _skip_statuses
             }

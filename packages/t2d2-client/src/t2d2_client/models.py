@@ -108,8 +108,7 @@ class HistoricalOrder(BaseModel):
     limit_price: Decimal | None = Field(None, alias="limitPrice")
     filled_price: Decimal | None = Field(None, alias="filledPrice")
     value: Decimal | None = None
-    creation_time: datetime = Field(alias="dateCreated")
-    date_modified: datetime = Field(alias="dateModified")
+    creation_time: datetime | None = Field(None, alias="createdAt")
     executor: str | None = None
     taxes: list[Any] = Field(default_factory=list)
 

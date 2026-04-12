@@ -202,4 +202,4 @@ class Trading212Client:
             params["ticker"] = ticker
         data = await self._request("GET", "/api/v0/equity/history/orders", params=params)
         items = data.get("items", [])
-        return [HistoricalOrder.model_validate(o) for o in items]
+        return [HistoricalOrder.model_validate(o.get("order", o)) for o in items]
