@@ -15,11 +15,9 @@ t2-d2/
 │   ├── t2d2-client/         # Trading212 REST API client
 │   ├── t2d2-market-data/    # Market data providers + trend analysis
 │   ├── t2d2-algo/           # Algorithm engine (mild → aggressive strategies)
-│   └── t2d2-notifier/       # FCM push notifications + webhook dispatch
-├── services/
-│   └── scheduler/           # CLI entrypoint (run manually or via cron)
-└── apps/
-    └── android/             # Read-only Android app (Jetpack Compose + FCM)
+│   └── t2d2-notifier/       # Webhook notifications
+└── services/
+    └── scheduler/           # CLI entrypoint (run manually or via cron)
 ```
 
 ---
@@ -32,7 +30,7 @@ Each run:
 3. Analyses trend direction and magnitude per ticker
 4. Applies the configured strategy (mild / moderate / aggressive) to determine if/how much to buy
 5. Executes limit or market orders via Trading212 API
-6. Sends push notification to mobile app via Firebase Cloud Messaging
+6. Logs each trade and session report, and POSTs them to a webhook if `WEBHOOK_URL` is set
 
 ### Strategy Modes
 
@@ -62,7 +60,6 @@ Each run:
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) package manager
 - Trading212 API key (live or demo)
-- Firebase project (optional, for push notifications)
 
 ### Local Setup
 
@@ -115,25 +112,13 @@ See `config/` for:
 
 ---
 
-## Android App
-
-The companion app is read-only and shows:
-- Current portfolio positions and P&L
-- Recent trades executed by T2-D2
-- Push notifications for each trade
-
-Runs on Pixel phones and Chromebooks (ChromeOS Play Store).
-
----
-
 ## Environment Variables
 
 | Variable                  | Description                                  |
 |---------------------------|----------------------------------------------|
 | `T212_API_KEY`            | Trading212 API key                           |
 | `T212_BASE_URL`           | `https://live.trading212.com` or demo URL    |
-| `FIREBASE_CREDENTIALS`    | Path to Firebase service account JSON        |
-| `FCM_TOPIC`               | FCM topic for broadcast pushes               |
+| `WEBHOOK_URL`             | Optional https URL to POST notifications to  |
 | `STRATEGY_MODE`           | `mild` / `moderate` / `aggressive`           |
 | `DRY_RUN`                 | `true` to simulate without placing orders    |
 
