@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
-from typing import Any
 
 import yaml
 from t2d2_client import Position, Trading212Client
@@ -20,11 +20,20 @@ from .strategies.base import StrategyConfig, TradeDecision
 
 logger = logging.getLogger(__name__)
 
+# Limit prices are sent to 2 decimal places in the quote currency (cents, pence)
+LIMIT_PRICE_DECIMALS = 2
+QUANTITY_DECIMALS = 4
+
+
+def _round_down(value: float, decimals: int) -> float:
+    """Round towards zero so a buy never exceeds its budget or target price."""
+    step = Decimal(1).scaleb(-decimals)
+    return float(Decimal(str(value)).quantize(step, rounding=ROUND_DOWN))
+
 
 @dataclass
 class RunResult:
     session: str
-    strategy_mode: str
     available_cash_gbp: float
     decisions: list[TradeDecision] = field(default_factory=list)
     executed_trades: list[TradeDecision] = field(default_factory=list)
@@ -37,7 +46,7 @@ class RunResult:
 
     def summary(self) -> str:
         lines = [
-            f"=== T2-D2 Run: {self.session} [{self.strategy_mode}] ===",
+            f"=== T2-D2 Run: {self.session} ===",
             f"Available cash: £{self.available_cash_gbp:.2f}",
             f"Decisions evaluated: {len(self.decisions)}",
             f"Trades {'simulated' if self.dry_run else 'executed'}: {len(self.executed_trades)}",
@@ -54,35 +63,45 @@ class RunResult:
         return "\n".join(lines)
 
 
-def load_strategy_config(config_dir: Path, mode_override: str | None = None) -> StrategyConfig:
+def load_strategy_configs(config_dir: Path) -> dict[str, StrategyConfig]:
+    """Load every strategy mode defined in ``strategy.yaml``.
+
+    Args:
+        config_dir: Directory containing ``strategy.yaml``.
+
+    Returns:
+        Mapping of mode name (e.g. ``"mild"``) to its config. Global limits and
+        analysis settings are shared, so they are identical in every entry.
+    """
     strategy_path = config_dir / "strategy.yaml"
     with open(strategy_path) as f:
         raw = yaml.safe_load(f)
 
-    active_mode = mode_override or raw["active_mode"]
-    mode_cfg = raw["modes"][active_mode]
     global_cfg = raw["global_limits"]
     analysis_cfg = raw["analysis"]
 
-    return StrategyConfig(
-        mode=active_mode,
-        min_daily_dip_pct=mode_cfg["min_daily_dip_pct"],
-        min_weekly_dip_pct=mode_cfg["min_weekly_dip_pct"],
-        max_position_increase_pct=mode_cfg["max_position_increase_pct"],
-        max_cash_deploy_pct=mode_cfg["max_cash_deploy_pct"],
-        order_type=mode_cfg["order_type"],
-        limit_discount_pct=mode_cfg["limit_discount_pct"],
-        max_portfolio_weight_pct=mode_cfg["max_portfolio_weight_pct"],
-        min_trade_gbp=mode_cfg["min_trade_gbp"],
-        absolute_max_cash_deploy_pct=global_cfg["absolute_max_cash_deploy_pct"],
-        min_cash_reserve_gbp=global_cfg["min_cash_reserve_gbp"],
-        max_trades_per_run=global_cfg["max_trades_per_run"],
-        ticker_cooldown_hours=global_cfg["ticker_cooldown_hours"],
-        require_both_timeframes=global_cfg["require_both_timeframes"],
-        rsi_max_buy=analysis_cfg["rsi_max_buy"],
-        daily_lookback_days=analysis_cfg["daily_lookback_days"],
-        weekly_lookback_days=analysis_cfg["weekly_lookback_days"],
-    )
+    return {
+        mode: StrategyConfig(
+            mode=mode,
+            min_daily_dip_pct=mode_cfg["min_daily_dip_pct"],
+            min_weekly_dip_pct=mode_cfg["min_weekly_dip_pct"],
+            max_position_increase_pct=mode_cfg["max_position_increase_pct"],
+            max_cash_deploy_pct=mode_cfg["max_cash_deploy_pct"],
+            order_type=mode_cfg["order_type"],
+            limit_discount_pct=mode_cfg["limit_discount_pct"],
+            max_portfolio_weight_pct=mode_cfg["max_portfolio_weight_pct"],
+            min_trade_gbp=mode_cfg["min_trade_gbp"],
+            absolute_max_cash_deploy_pct=global_cfg["absolute_max_cash_deploy_pct"],
+            min_cash_reserve_gbp=global_cfg["min_cash_reserve_gbp"],
+            max_trades_per_run=global_cfg["max_trades_per_run"],
+            ticker_cooldown_hours=global_cfg["ticker_cooldown_hours"],
+            require_both_timeframes=global_cfg["require_both_timeframes"],
+            rsi_max_buy=analysis_cfg["rsi_max_buy"],
+            daily_lookback_days=analysis_cfg["daily_lookback_days"],
+            weekly_lookback_days=analysis_cfg["weekly_lookback_days"],
+        )
+        for mode, mode_cfg in raw["modes"].items()
+    }
 
 
 class AlgoEngine:
@@ -97,7 +116,7 @@ class AlgoEngine:
         position: Position | None,
         available_cash: float,
         total_portfolio_value: float,
-        ticker_override: dict[str, Any] | None = None,
+        fx_rate: float | None,
         recently_traded: set[str] | None = None,
     ) -> TradeDecision:
         """
@@ -108,27 +127,16 @@ class AlgoEngine:
             position: Current held position (None if not held).
             available_cash: Free ISA cash in account currency.
             total_portfolio_value: Total invested + cash.
-            ticker_override: Per-ticker strategy overrides from stocks.yaml.
+            fx_rate: Quote-currency units per one unit of account currency, e.g. 100
+                for a GBp (pence) quote in a GBP account, or 1.34 for USD. None if
+                unknown, in which case the ticker is skipped.
+            recently_traded: Tickers still in their post-trade cooldown.
         """
         cfg = self.config
         ticker = signal.ticker
 
-        # Apply per-ticker mode override if present
-        if ticker_override and "mode" in ticker_override:
-            # Quick override: just adjust thresholds for this ticker
-            override_mode = ticker_override["mode"]
-            if override_mode == "mild":
-                min_daily = -3.0
-                max_cash_pct = ticker_override.get("max_cash_pct", cfg.max_cash_deploy_pct / 100)
-            elif override_mode == "aggressive":
-                min_daily = -1.0
-                max_cash_pct = ticker_override.get("max_cash_pct", cfg.max_cash_deploy_pct / 100)
-            else:
-                min_daily = cfg.min_daily_dip_pct
-                max_cash_pct = cfg.max_cash_deploy_pct / 100
-        else:
-            min_daily = cfg.min_daily_dip_pct
-            max_cash_pct = cfg.max_cash_deploy_pct / 100
+        min_daily = cfg.min_daily_dip_pct
+        max_cash_pct = cfg.max_cash_deploy_pct / 100
 
         def skip(reason: str) -> TradeDecision:
             return TradeDecision(
@@ -140,6 +148,7 @@ class AlgoEngine:
                 weekly_change_pct=signal.weekly_change_pct,
                 rsi=signal.rsi,
                 current_price=signal.latest_price,
+                strategy=cfg.mode,
             )
 
         # --- Gate checks ---
@@ -194,10 +203,23 @@ class AlgoEngine:
         if trade_value < cfg.min_trade_gbp:
             return skip(f"Trade size £{trade_value:.2f} below minimum £{cfg.min_trade_gbp:.2f}")
 
-        # --- Compute limit price if applicable ---
+        if fx_rate is None:
+            return skip(f"No FX rate for quote currency {signal.currency or 'unknown'}")
+
+        # --- Compute limit price if applicable (in the quote currency) ---
         limit_price: float | None = None
         if cfg.order_type == "limit":
-            limit_price = signal.latest_price * (1 - cfg.limit_discount_pct / 100)
+            limit_price = _round_down(
+                signal.latest_price * (1 - cfg.limit_discount_pct / 100), LIMIT_PRICE_DECIMALS
+            )
+            if limit_price <= 0:
+                return skip(f"Limit price {limit_price} too small to place")
+
+        # --- Convert the account-currency budget into a share count ---
+        order_price = limit_price if limit_price is not None else signal.latest_price
+        quantity = _round_down(trade_value * fx_rate / order_price, QUANTITY_DECIMALS)
+        if quantity <= 0:
+            return skip(f"Trade size £{trade_value:.2f} buys less than one share fraction")
 
         reason = (
             f"Daily: {signal.daily_change_pct:+.2f}%, "
@@ -215,6 +237,9 @@ class AlgoEngine:
             rsi=signal.rsi,
             current_price=signal.latest_price,
             limit_price=limit_price,
+            strategy=cfg.mode,
+            quantity=quantity,
+            currency=signal.currency,
         )
 
     def rank_decisions(self, decisions: list[TradeDecision]) -> list[TradeDecision]:
@@ -233,9 +258,8 @@ class AlgoEngine:
 class TradeExecutor:
     """Executes ranked decisions against the Trading212 API."""
 
-    def __init__(self, client: Trading212Client, config: StrategyConfig, dry_run: bool = False) -> None:  # noqa: E501
+    def __init__(self, client: Trading212Client, dry_run: bool = False) -> None:
         self.client = client
-        self.config = config
         self.dry_run = dry_run
 
     async def execute(self, decision: TradeDecision) -> bool:
@@ -246,20 +270,18 @@ class TradeExecutor:
         t212_ticker = decision.t212_ticker or decision.ticker
 
         try:
-            if self.config.order_type == "limit" and decision.limit_price:
-                # Estimate quantity from value
-                quantity = decision.trade_value_gbp / decision.current_price
+            # Limit price is only set for decisions from limit-order strategies
+            if decision.limit_price is not None:
                 await self.client.place_limit_order(
                     ticker=t212_ticker,
-                    quantity=round(quantity, 4),
+                    quantity=decision.quantity,
                     limit_price=decision.limit_price,
                     time_validity=TimeValidity.DAY,
                 )
             else:
-                quantity = decision.trade_value_gbp / decision.current_price
                 await self.client.place_market_order(
                     ticker=t212_ticker,
-                    quantity=round(quantity, 4),
+                    quantity=decision.quantity,
                 )
             logger.info("Executed: %s", decision)
             return True

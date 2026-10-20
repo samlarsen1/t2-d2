@@ -42,11 +42,15 @@ class TradeDecision:
     current_price: float
     limit_price: float | None = None
     t212_ticker: str | None = None  # T212 instrument code, falls back to ticker if unset
+    strategy: str | None = None  # Strategy mode that produced this decision
+    quantity: float = 0.0  # Shares to buy, from trade_value_gbp converted via FX
+    currency: str | None = None  # Quote currency of current/limit price
 
     def __str__(self) -> str:
+        label = f"{self.ticker} [{self.strategy}]" if self.strategy else self.ticker
         if self.should_trade:
-            order = f"BUY £{self.trade_value_gbp:.2f}"
+            order = f"BUY £{self.trade_value_gbp:.2f} ({self.quantity} shares)"
             if self.limit_price:
-                order += f" @ limit {self.limit_price:.4f}"
-            return f"{self.ticker}: {order} | {self.reason}"
-        return f"{self.ticker}: SKIP | {self.reason}"
+                order += f" @ limit {self.limit_price:.2f} {self.currency or ''}".rstrip()
+            return f"{label}: {order} | {self.reason}"
+        return f"{label}: SKIP | {self.reason}"

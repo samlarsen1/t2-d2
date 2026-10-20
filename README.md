@@ -27,7 +27,7 @@ Each run:
 1. Fetches available ISA cash balance from Trading212
 2. Pulls daily + weekly OHLCV data for configured tickers
 3. Analyses trend direction and magnitude per ticker
-4. Applies the configured strategy (mild / moderate / aggressive) to determine if/how much to buy
+4. Applies each ticker's configured strategy (mild / moderate / aggressive) to determine if/how much to buy
 5. Executes limit or market orders via Trading212 API
 6. Logs each executed trade and a session summary
 
@@ -109,7 +109,7 @@ See [install.md](install.md) for installing from GitHub with uv and running ever
 ## Configuration
 
 See `config/` for:
-- `stocks.yaml` — ticker lists by market with per-ticker overrides
+- `stocks.yaml` — ticker lists by market; every ticker must set `strategy` (`mild` / `moderate` / `aggressive`)
 - `strategy.yaml` — mode definitions and global risk limits
 - `schedules.yaml` — which sessions are active and which markets they cover
 
@@ -121,7 +121,6 @@ See `config/` for:
 |---------------------------|----------------------------------------------|
 | `T212_API_KEY`            | Trading212 API key                           |
 | `T212_BASE_URL`           | `https://live.trading212.com` or demo URL    |
-| `STRATEGY_MODE`           | `mild` / `moderate` / `aggressive`           |
 | `DRY_RUN`                 | `true` (default) simulates without placing orders; `false` places real orders. Overridden by `--dry-run` / `--no-dry-run` |
 
 ---

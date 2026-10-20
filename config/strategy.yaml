@@ -1,9 +1,7 @@
 # T2-D2 Strategy Configuration
 # Controls how aggressively T2-D2 responds to downtrends.
 
-# Active mode — can be overridden by STRATEGY_MODE env var
-active_mode: mild
-
+# Strategy modes — each ticker in stocks.yaml picks one via its `strategy` attribute
 modes:
   mild:
     description: >
@@ -37,7 +35,7 @@ modes:
     order_type: limit
     limit_discount_pct: 0.3
     max_portfolio_weight_pct: 12.5
-    min_trade_gbp: 10.0
+    min_trade_gbp: 30.0
 
   aggressive:
     description: >
@@ -50,7 +48,7 @@ modes:
     order_type: market
     limit_discount_pct: 0.0
     max_portfolio_weight_pct: 17.5
-    min_trade_gbp: 10.0
+    min_trade_gbp: 50.0
 
 # Global safety limits — enforced regardless of mode
 global_limits:

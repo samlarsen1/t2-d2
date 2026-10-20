@@ -1,4 +1,4 @@
-from .engine import AlgoEngine, RunResult, TradeExecutor, load_strategy_config
+from .engine import AlgoEngine, RunResult, TradeExecutor, load_strategy_configs
 from .strategies.base import StrategyConfig, TradeDecision
 
 __all__ = [
@@ -7,5 +7,5 @@ __all__ = [
     "TradeExecutor",
     "StrategyConfig",
     "TradeDecision",
-    "load_strategy_config",
+    "load_strategy_configs",
 ]

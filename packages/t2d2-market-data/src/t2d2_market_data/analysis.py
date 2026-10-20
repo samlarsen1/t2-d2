@@ -27,6 +27,7 @@ class TrendSignal:
     is_below_sma20: bool
     is_below_sma50: bool
     volume_ratio: float         # Today's volume vs 20-day average
+    currency: str | None = None  # Quote currency of the prices, e.g. "GBp", "USD"
 
     @property
     def is_downtrend(self) -> bool:
@@ -43,7 +44,7 @@ class TrendSignal:
 
     def __str__(self) -> str:
         return (
-            f"{self.ticker}: £{self.latest_price:.4f} | "
+            f"{self.ticker}: {self.latest_price:.4f} {self.currency or '?'} | "
             f"1d: {self.daily_change_pct:+.2f}% | "
             f"5d: {self.weekly_change_pct:+.2f}% | "
             f"RSI: {self.rsi:.1f} | "
@@ -107,6 +108,7 @@ class TrendAnalyser:
             is_below_sma20=latest_price < sma20,
             is_below_sma50=latest_price < sma50,
             volume_ratio=vol_ratio,
+            currency=data.currency,
         )
 
         logger.debug("Signal: %s", signal)
