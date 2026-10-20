@@ -38,7 +38,7 @@ class PortfolioRepository @Inject constructor() {
      * the app never contacts Trading212 directly.
      */
     suspend fun fetchPortfolio() {
-        // TODO: implement once backend Cloud Run proxy is added
+        // TODO: implement once backend proxy is added
         // For now, show a placeholder so the UI renders
         _portfolio.value = Portfolio(
             cash = AccountCash(free = 0.0, invested = 0.0, ppl = 0.0, result = 0.0),

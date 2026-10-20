@@ -28,17 +28,6 @@ uv.lock
 firebase-credentials.json
 service-account*.json
 
-# Terraform
-**/.terraform/
-*.tfstate
-*.tfstate.*
-*.tfplan
-.terraform.lock.hcl
-crash.log
-crash.*.log
-*.tfvars
-!*.tfvars.example
-
 # Android
 apps/android/.gradle/
 apps/android/local.properties
@@ -61,5 +50,3 @@ logs/
 
 # AI Tools
 .headroom/
-# Docker
-# .dockerignore intentionally tracked in repo

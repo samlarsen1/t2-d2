@@ -1,8 +1,0 @@
-project_id    = "your-gcp-project-id"
-region        = "europe-west2"
-image_tag     = "latest"
-strategy_mode = "mild"
-dry_run       = false
-t212_base_url = "https://live.trading212.com"
-fcm_topic     = "t2d2-trades"
-alert_email   = "you@example.com"

@@ -1,7 +1,7 @@
 """
-T2-D2 Scheduler — Cloud Run Job entrypoint.
+T2-D2 Scheduler — local CLI entrypoint.
 
-Invoked by Cloud Scheduler at configured session times.
+Run manually or from cron at configured session times.
 Orchestrates the full trading cycle:
   1. Validate session / blackout date check
   2. Fetch account cash + positions

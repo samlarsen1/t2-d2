@@ -1,6 +1,6 @@
 # T2-D2 Schedule Configuration
 # All times in UTC. Schedules align with major market open/close windows.
-# Cloud Scheduler cron expressions: minute hour day month day-of-week
+# Cron expressions (use with a local crontab): minute hour day month day-of-week
 
 sessions:
   eu_morning:
