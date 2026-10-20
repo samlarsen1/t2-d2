@@ -271,9 +271,18 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     return result
 
 
-def main() -> None:
-    setup_logging()
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments.
 
+    ``--dry-run`` / ``--no-dry-run`` override the ``DRY_RUN`` env var, which
+    defaults to true when unset.
+
+    Args:
+        argv: Arguments to parse; defaults to ``sys.argv[1:]``.
+
+    Returns:
+        Parsed arguments with ``session`` and ``dry_run``.
+    """
     parser = argparse.ArgumentParser(description="T2-D2 Trading Scheduler")
     parser.add_argument(
         "--session",
@@ -283,12 +292,16 @@ def main() -> None:
     )
     parser.add_argument(
         "--dry-run",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=os.getenv("DRY_RUN", "true").lower() == "true",
-        help="Simulate trades without placing orders (default: true)",
+        help="Simulate trades without placing orders (default: $DRY_RUN, else true)",
     )
+    return parser.parse_args(argv)
 
-    args = parser.parse_args()
+
+def main() -> None:
+    setup_logging()
+    args = parse_args()
 
     log.info("t2d2_starting", session=args.session, dry_run=args.dry_run)
 

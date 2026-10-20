@@ -80,7 +80,13 @@ cp .env.example .env
 
 # Run a single trading cycle locally (dry-run)
 uv run python -m scheduler.main --session eu_morning --dry-run
+
+# Place real orders for this run only (overrides DRY_RUN=true in .env)
+uv run python -m scheduler.main --session eu_morning --no-dry-run
 ```
+
+`--dry-run` / `--no-dry-run` override `DRY_RUN` for a single run; with neither flag, `DRY_RUN`
+decides (default `true`).
 
 ### Development
 
@@ -116,7 +122,7 @@ See `config/` for:
 | `T212_API_KEY`            | Trading212 API key                           |
 | `T212_BASE_URL`           | `https://live.trading212.com` or demo URL    |
 | `STRATEGY_MODE`           | `mild` / `moderate` / `aggressive`           |
-| `DRY_RUN`                 | `true` to simulate without placing orders    |
+| `DRY_RUN`                 | `true` (default) simulates without placing orders; `false` places real orders. Overridden by `--dry-run` / `--no-dry-run` |
 
 ---
 
