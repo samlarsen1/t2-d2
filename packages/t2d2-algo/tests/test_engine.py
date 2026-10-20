@@ -265,3 +265,52 @@ async def test_executor_sends_decision_quantity_and_limit() -> None:
     assert kwargs["ticker"] == "RIOl_EQ"
     assert kwargs["limit_price"] == 6512.27
     assert kwargs["quantity"] == decision.quantity == 1.5355
+
+
+def test_weekly_gate_applies_when_mode_requires_both() -> None:
+    engine = AlgoEngine(make_config(require_both_timeframes=True, min_weekly_dip_pct=-5.0))
+    decision = engine.evaluate(
+        signal=make_signal(daily_change_pct=-5.0, weekly_change_pct=-2.0),
+        position=None,
+        available_cash=1000.0,
+        total_portfolio_value=5000.0,
+        fx_rate=1.0,
+    )
+    assert not decision.should_trade
+    assert "Weekly change -2.00% above threshold -5.00%" in decision.reason
+
+
+def test_weekly_gate_passes_on_deep_weekly_dip() -> None:
+    engine = AlgoEngine(make_config(require_both_timeframes=True, min_weekly_dip_pct=-5.0))
+    decision = engine.evaluate(
+        signal=make_signal(daily_change_pct=-5.0, weekly_change_pct=-8.0),
+        position=None,
+        available_cash=1000.0,
+        total_portfolio_value=5000.0,
+        fx_rate=1.0,
+    )
+    assert decision.should_trade
+
+
+def test_weekly_gate_ignored_without_flag() -> None:
+    engine = AlgoEngine(make_config(require_both_timeframes=False, min_weekly_dip_pct=None))
+    decision = engine.evaluate(
+        signal=make_signal(daily_change_pct=-5.0, weekly_change_pct=+3.0),
+        position=None,
+        available_cash=1000.0,
+        total_portfolio_value=5000.0,
+        fx_rate=1.0,
+    )
+    assert decision.should_trade
+
+
+def test_require_both_without_weekly_threshold_rejected() -> None:
+    with pytest.raises(ValueError, match="needs min_weekly_dip_pct"):
+        make_config(require_both_timeframes=True, min_weekly_dip_pct=None)
+
+
+def test_repo_strategy_config_weekly_settings() -> None:
+    configs = load_strategy_configs(REPO_ROOT / "config")
+    for cfg in configs.values():
+        if cfg.require_both_timeframes:
+            assert cfg.min_weekly_dip_pct is not None

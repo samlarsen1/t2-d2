@@ -84,7 +84,7 @@ def load_strategy_configs(config_dir: Path) -> dict[str, StrategyConfig]:
         mode: StrategyConfig(
             mode=mode,
             min_daily_dip_pct=mode_cfg["min_daily_dip_pct"],
-            min_weekly_dip_pct=mode_cfg["min_weekly_dip_pct"],
+            min_weekly_dip_pct=mode_cfg.get("min_weekly_dip_pct"),
             max_position_increase_pct=mode_cfg["max_position_increase_pct"],
             max_cash_deploy_pct=mode_cfg["max_cash_deploy_pct"],
             order_type=mode_cfg["order_type"],
@@ -95,10 +95,10 @@ def load_strategy_configs(config_dir: Path) -> dict[str, StrategyConfig]:
             min_cash_reserve_gbp=global_cfg["min_cash_reserve_gbp"],
             max_trades_per_run=global_cfg["max_trades_per_run"],
             ticker_cooldown_hours=global_cfg["ticker_cooldown_hours"],
-            require_both_timeframes=global_cfg["require_both_timeframes"],
             rsi_max_buy=analysis_cfg["rsi_max_buy"],
             daily_lookback_days=analysis_cfg["daily_lookback_days"],
             weekly_lookback_days=analysis_cfg["weekly_lookback_days"],
+            require_both_timeframes=mode_cfg.get("require_both_timeframes", False),
         )
         for mode, mode_cfg in raw["modes"].items()
     }
@@ -163,8 +163,12 @@ class AlgoEngine:
                 f"Daily change {signal.daily_change_pct:+.2f}% above threshold {min_daily:+.2f}%"
             )
 
-        # 2. Weekly dip threshold (optional gating)
-        if cfg.require_both_timeframes and signal.weekly_change_pct > cfg.min_weekly_dip_pct:
+        # 2. Weekly dip threshold (only for modes with require_both_timeframes)
+        if (
+            cfg.require_both_timeframes
+            and cfg.min_weekly_dip_pct is not None
+            and signal.weekly_change_pct > cfg.min_weekly_dip_pct
+        ):
             return skip(
                 f"Weekly change {signal.weekly_change_pct:+.2f}% "
                 f"above threshold {cfg.min_weekly_dip_pct:+.2f}%"

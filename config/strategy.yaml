@@ -11,6 +11,8 @@ modes:
     min_daily_dip_pct: -3.0
     # Minimum weekly decline to confirm downtrend
     min_weekly_dip_pct: -5.0
+    # Optional flag to require both daily and weekly trends
+    require_both_timeframes: true
     # Maximum additional investment as % of current position value
     max_position_increase_pct: 5.0
     # Maximum % of available ISA cash to deploy in a single run
@@ -29,7 +31,6 @@ modes:
       Balanced DCA. Responds to smaller dips with moderate position increases.
       Good for active rebalancing during volatile periods.
     min_daily_dip_pct: -2.0
-    min_weekly_dip_pct: -3.0
     max_position_increase_pct: 10.0
     max_cash_deploy_pct: 10.0
     order_type: limit
@@ -42,11 +43,10 @@ modes:
       Active opportunistic buying. Responds to small dips with larger capital deployment.
       Higher risk — ensure you have sufficient cash buffer before enabling.
     min_daily_dip_pct: -1.0
-    min_weekly_dip_pct: -1.5
     max_position_increase_pct: 15.0
     max_cash_deploy_pct: 15.0
-    order_type: market
-    limit_discount_pct: 0.0
+    order_type: limit
+    limit_discount_pct: 0.2
     max_portfolio_weight_pct: 17.5
     min_trade_gbp: 50.0
 
@@ -57,11 +57,9 @@ global_limits:
   # Minimum cash buffer to keep in ISA at all times (£)
   min_cash_reserve_gbp: 100.0
   # Maximum number of distinct trades per run
-  max_trades_per_run: 2
+  max_trades_per_run: 3
   # Cooldown: don't re-buy a ticker within this many hours of last trade
   ticker_cooldown_hours: 72
-  # Require both daily AND weekly dip to align before trading
-  require_both_timeframes: false
 
 # Trend analysis settings
 analysis:

@@ -8,7 +8,7 @@ class StrategyConfig:
     """Parsed strategy configuration for a specific mode."""
     mode: str
     min_daily_dip_pct: float
-    min_weekly_dip_pct: float
+    min_weekly_dip_pct: float | None  # Only needed when require_both_timeframes
     max_position_increase_pct: float
     max_cash_deploy_pct: float
     order_type: str
@@ -21,12 +21,20 @@ class StrategyConfig:
     min_cash_reserve_gbp: float
     max_trades_per_run: int
     ticker_cooldown_hours: int
-    require_both_timeframes: bool
 
     # Analysis settings
     rsi_max_buy: float
     daily_lookback_days: int
     weekly_lookback_days: int
+
+    # Per-mode: also require the weekly dip to reach min_weekly_dip_pct
+    require_both_timeframes: bool = False
+
+    def __post_init__(self) -> None:
+        if self.require_both_timeframes and self.min_weekly_dip_pct is None:
+            raise ValueError(
+                f"Strategy {self.mode!r}: require_both_timeframes needs min_weekly_dip_pct"
+            )
 
 
 @dataclass
