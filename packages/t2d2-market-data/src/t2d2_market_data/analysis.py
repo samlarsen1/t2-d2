@@ -5,7 +5,7 @@ whether a ticker is in a downtrend worth buying into.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pandas as pd
 
@@ -27,6 +27,7 @@ class TrendSignal:
     is_below_sma20: bool
     is_below_sma50: bool
     volume_ratio: float         # Today's volume vs 20-day average
+    currency: str | None = None  # Quote currency of the prices, e.g. "GBp", "USD"
 
     @property
     def is_downtrend(self) -> bool:
@@ -43,7 +44,7 @@ class TrendSignal:
 
     def __str__(self) -> str:
         return (
-            f"{self.ticker}: £{self.latest_price:.4f} | "
+            f"{self.ticker}: {self.latest_price:.4f} {self.currency or '?'} | "
             f"1d: {self.daily_change_pct:+.2f}% | "
             f"5d: {self.weekly_change_pct:+.2f}% | "
             f"RSI: {self.rsi:.1f} | "
@@ -107,16 +108,23 @@ class TrendAnalyser:
             is_below_sma20=latest_price < sma20,
             is_below_sma50=latest_price < sma50,
             volume_ratio=vol_ratio,
+            currency=data.currency,
         )
 
         logger.debug("Signal: %s", signal)
         return signal
 
     def analyse_many(self, data_map: dict[str, OHLCVData]) -> dict[str, TrendSignal]:
+        """Analyse each entry, labelling every signal with its ``data_map`` key.
+
+        The key (the stocks.yaml symbol, e.g. ``"CWR"``) replaces the provider's
+        ticker (e.g. ``"CWR.L"``) so downstream checks such as the trade
+        cooldown match on the same name.
+        """
         signals: dict[str, TrendSignal] = {}
         for ticker, data in data_map.items():
             try:
-                signals[ticker] = self.analyse(data)
+                signals[ticker] = replace(self.analyse(data), ticker=ticker)
             except Exception as e:
                 logger.warning("Analysis failed for %s: %s", ticker, e)
         return signals

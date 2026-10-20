@@ -89,8 +89,8 @@ chmod 600 .env
 nano .env
 ```
 
-Fill in `T212_API_KEY` and `T212_API_SECRET`, choose `T212_BASE_URL` (live or demo) and
-`STRATEGY_MODE`. **Leave `DRY_RUN=true`** until you have checked a few days of runs (step 10).
+Fill in `T212_API_KEY` and `T212_API_SECRET`, choose `T212_BASE_URL` (live or demo). Each ticker's
+strategy is set in `config/stocks.yaml`, not `.env`. **Leave `DRY_RUN=true`** until you have checked a few days of runs (step 10).
 
 The scheduler finds `.env` in the repository root automatically.
 

@@ -24,7 +24,7 @@ from typing import Any
 import structlog
 import yaml
 from dotenv import load_dotenv
-from t2d2_algo import AlgoEngine, RunResult, TradeExecutor, load_strategy_config
+from t2d2_algo import AlgoEngine, RunResult, TradeExecutor, load_strategy_configs
 from t2d2_algo.strategies.base import TradeDecision
 from t2d2_client import Trading212Client
 from t2d2_client.models import OrderStatus
@@ -70,17 +70,43 @@ def is_blackout(session_cfg: dict[str, Any], markets: list[str]) -> bool:
     return False
 
 
+def validate_stock_strategies(stocks: dict[str, Any], strategies: set[str]) -> None:
+    """Check every traded ticker in stocks.yaml names a known strategy.
+
+    Args:
+        stocks: Parsed stocks.yaml.
+        strategies: Strategy mode names defined in strategy.yaml.
+
+    Raises:
+        ValueError: If any ticker has no ``strategy`` or an unknown one.
+    """
+    problems: list[str] = []
+    for market, market_cfg in stocks.get("markets", {}).items():
+        for ticker_entry in market_cfg.get("tickers", []):
+            strategy = ticker_entry.get("strategy")
+            label = f"{market}/{ticker_entry.get('symbol', '?')}"
+            if strategy is None:
+                problems.append(f"{label}: missing 'strategy'")
+            elif strategy not in strategies:
+                problems.append(f"{label}: unknown strategy {strategy!r}")
+    if problems:
+        raise ValueError(
+            f"Invalid stocks.yaml (valid strategies: {', '.join(sorted(strategies))}): "
+            + "; ".join(problems)
+        )
+
+
 def get_tickers_for_session(
     stocks: dict[str, Any], markets: list[str]
-) -> list[tuple[str, str, str]]:
-    """Return [(symbol, t212_ticker, market)] for the given markets."""
+) -> list[tuple[str, str, str, str]]:
+    """Return [(symbol, t212_ticker, market, strategy)] for the given markets."""
     result = []
     for market in markets:
         market_cfg = stocks.get("markets", {}).get(market, {})
         for ticker_entry in market_cfg.get("tickers", []):
             symbol = ticker_entry["symbol"]
             t212_ticker = ticker_entry.get("t212_ticker", symbol)
-            result.append((symbol, t212_ticker, market))
+            result.append((symbol, t212_ticker, market, ticker_entry["strategy"]))
     return result
 
 
@@ -88,7 +114,6 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     api_key = os.environ["T212_API_KEY"]
     api_secret = os.environ["T212_API_SECRET"]
     base_url = os.getenv("T212_BASE_URL", "https://live.trading212.com")
-    strategy_mode = os.getenv("STRATEGY_MODE")
 
     schedules = load_schedules_config()
     session_cfg = schedules["sessions"].get(session)
@@ -97,41 +122,39 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
     if not session_cfg.get("enabled", True):
         log.info("session_disabled", session=session)
-        return RunResult(
-            session=session,
-            strategy_mode=strategy_mode or "unknown",
-            available_cash_gbp=0.0,
-        )
+        return RunResult(session=session, available_cash_gbp=0.0)
 
     markets: list[str] = session_cfg["markets"]
     action: str = session_cfg.get("action", "trade")
 
     if is_blackout(session_cfg, markets):
         log.info("skipping_blackout", session=session)
-        return RunResult(
-            session=session, strategy_mode=strategy_mode or "unknown", available_cash_gbp=0.0
-        )
+        return RunResult(session=session, available_cash_gbp=0.0)
 
-    strategy_config = load_strategy_config(CONFIG_DIR, strategy_mode)
+    strategy_configs = load_strategy_configs(CONFIG_DIR)
     stocks_cfg = load_stocks_config()
+    validate_stock_strategies(stocks_cfg, set(strategy_configs))
+    engines = {mode: AlgoEngine(cfg) for mode, cfg in strategy_configs.items()}
+    # Global limits and analysis settings are the same in every mode's config
+    shared_config = next(iter(strategy_configs.values()))
 
     async with Trading212Client(api_key=api_key, api_secret=api_secret, base_url=base_url) as client:  # noqa: E501
         # Fetch account state
-        cash = await client.get_account_cash()
+        summary = await client.get_account_summary()
         positions = await client.get_positions()
-        available_cash = float(cash.free)
-        total_portfolio = float(cash.invested) + available_cash
+        available_cash = float(summary.cash.available_to_trade)
+        invested = float(summary.investments.current_value)
+        total_portfolio = invested + available_cash
 
         log.info(
             "account_state",
             free_cash=available_cash,
-            invested=float(cash.invested),
+            invested=invested,
             positions=len(positions),
         )
 
         result = RunResult(
             session=session,
-            strategy_mode=strategy_config.mode,
             available_cash_gbp=available_cash,
             dry_run=dry_run,
         )
@@ -147,14 +170,14 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
         provider = YahooFinanceProvider()
         period_days = max(
-            strategy_config.daily_lookback_days,
-            strategy_config.weekly_lookback_days,
+            shared_config.daily_lookback_days,
+            shared_config.weekly_lookback_days,
         ) + 5  # buffer
 
         # Build cooldown set from recent order history + pending orders
-        t212_to_symbol = {t212: sym for sym, t212, _ in tickers}
+        t212_to_symbol = {t212: sym for sym, t212, _, _ in tickers}
         cooldown_cutoff = datetime.now(tz=UTC) - timedelta(
-            hours=strategy_config.ticker_cooldown_hours
+            hours=shared_config.ticker_cooldown_hours
         )
         _skip_statuses = {OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.CANCELLING}
         recently_traded: set[str] = set()
@@ -188,24 +211,26 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
             log.info(
                 "cooldown_active",
                 tickers=sorted(recently_traded),
-                hours=strategy_config.ticker_cooldown_hours,
+                hours=shared_config.ticker_cooldown_hours,
             )
 
-        yahoo_tickers = [(symbol, market) for symbol, _t212, market in tickers]
+        yahoo_tickers = [(symbol, market) for symbol, _t212, market, _strategy in tickers]
         ohlcv_data = await provider.fetch_multiple(yahoo_tickers, period_days=period_days)
         analyser = TrendAnalyser()
         signals = analyser.analyse_many(ohlcv_data)
+        quote_currencies = {sig.currency for sig in signals.values() if sig.currency}
+        fx_rates = await provider.fetch_fx_rates_async(quote_currencies, summary.currency)
+        log.info("fx_rates", account_currency=summary.currency, **fx_rates)
 
         log.info("signals_computed", count=len(signals))
 
         # Build position lookup by T212 ticker
         position_map = {p.ticker: p for p in positions}
 
-        # Evaluate each signal
-        engine = AlgoEngine(strategy_config)
+        # Evaluate each signal with the ticker's own strategy
         decisions: list[TradeDecision] = []
 
-        for symbol, t212_ticker, market in tickers:
+        for symbol, t212_ticker, _market, strategy in tickers:
             if symbol not in signals:
                 log.warning("no_signal", ticker=symbol)
                 continue
@@ -213,35 +238,32 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
             signal = signals[symbol]
             position = position_map.get(t212_ticker)
 
-            # Check per-ticker strategy override
-            market_cfg = stocks_cfg["markets"][market]
-            ticker_cfg: dict[str, Any] = next(
-                (t for t in market_cfg["tickers"] if t["symbol"] == symbol), {}
-            )
-            override = ticker_cfg.get("strategy_override")
-
-            decision = engine.evaluate(
+            decision = engines[strategy].evaluate(
                 signal=signal,
                 position=position,
                 available_cash=available_cash,
                 total_portfolio_value=total_portfolio,
-                ticker_override=override,
+                fx_rate=fx_rates.get(signal.currency) if signal.currency else None,
                 recently_traded=recently_traded,
             )
             decision.t212_ticker = t212_ticker
             decisions.append(decision)
             log.debug(
-                "decision", ticker=symbol, trade=decision.should_trade, reason=decision.reason
+                "decision",
+                ticker=symbol,
+                strategy=strategy,
+                trade=decision.should_trade,
+                reason=decision.reason,
             )
 
         result.decisions = decisions
 
         # Rank and cap
-        ranked = engine.rank_decisions(decisions)
+        ranked = AlgoEngine(shared_config).rank_decisions(decisions)
         log.info("ranked_trades", count=len(ranked))
 
         # Execute
-        executor = TradeExecutor(client=client, config=strategy_config, dry_run=dry_run)
+        executor = TradeExecutor(client=client, dry_run=dry_run)
 
         for decision in ranked:
             success = await executor.execute(decision)
@@ -252,9 +274,13 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                 log.info(
                     "trade_executed",
                     ticker=decision.ticker,
+                    strategy=decision.strategy,
                     action="BUY",
                     value_gbp=round(decision.trade_value_gbp, 2),
                     price=decision.current_price,
+                    limit_price=decision.limit_price,
+                    quantity=decision.quantity,
+                    currency=decision.currency,
                     daily_change_pct=round(decision.daily_change_pct, 2),
                     weekly_change_pct=round(decision.weekly_change_pct, 2),
                     dry_run=dry_run,
@@ -270,9 +296,18 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     return result
 
 
-def main() -> None:
-    setup_logging()
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments.
 
+    ``--dry-run`` / ``--no-dry-run`` override the ``DRY_RUN`` env var, which
+    defaults to true when unset.
+
+    Args:
+        argv: Arguments to parse; defaults to ``sys.argv[1:]``.
+
+    Returns:
+        Parsed arguments with ``session`` and ``dry_run``.
+    """
     parser = argparse.ArgumentParser(description="T2-D2 Trading Scheduler")
     parser.add_argument(
         "--session",
@@ -282,12 +317,16 @@ def main() -> None:
     )
     parser.add_argument(
         "--dry-run",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=os.getenv("DRY_RUN", "true").lower() == "true",
-        help="Simulate trades without placing orders (default: true)",
+        help="Simulate trades without placing orders (default: $DRY_RUN, else true)",
     )
+    return parser.parse_args(argv)
 
-    args = parser.parse_args()
+
+def main() -> None:
+    setup_logging()
+    args = parse_args()
 
     log.info("t2d2_starting", session=args.session, dry_run=args.dry_run)
 

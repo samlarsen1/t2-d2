@@ -1,6 +1,7 @@
 # T2-D2 Stock Configuration
 # Tickers must match Trading212 instrument codes.
-# Each entry can override global strategy settings per-ticker.
+# Every traded ticker must set `strategy` to a mode defined in strategy.yaml
+# (mild | moderate | aggressive). The scheduler refuses to run otherwise.
 
 markets:
   uk:
@@ -10,35 +11,27 @@ markets:
       - symbol: RIO
         t212_ticker: RIOl_EQ
         name: Rio Tinto
-        strategy_override:
-          mode: moderate
-      - symbol: GRG
-        t212_ticker: GRGl_EQ
-        name: Greggs
-      - symbol: VOD
-        t212_ticker: VODl_EQ
-        name: Vodafone
+        strategy: mild
       - symbol: CWR
         t212_ticker: CWRl_EQ
         name: Ceres Power
+        strategy: mild
       - symbol: TRIG
         t212_ticker: TRIGl_EQ
         name: Renewables Infrastructure Group
+        strategy: mild
       - symbol: NG.
         t212_ticker: NGl_EQ
         name: National Grid
-        strategy_override:
-          mode: moderate
+        strategy: mild
       - symbol: ITM
         t212_ticker: ITMl_EQ
         name: ITM Power
-        strategy_override:
-          mode: moderate
+        strategy: mild
       - symbol: UKW
         t212_ticker: UKWl_EQ
         name: Greencoat UK Wind
-        strategy_override:
-          mode: moderate
+        strategy: mild
 
   us:
     currency: USD
@@ -47,69 +40,56 @@ markets:
       - symbol: GOOGL
         t212_ticker: GOOGL_US_EQ
         name: Alphabet A
-        strategy_override:
-          mode: moderate
+        strategy: mild
       - symbol: HOOD
         t212_ticker: HOOD_US_EQ
         name: Robinhood
-        strategy_override:
-          mode: moderate
-      - symbol: AMZN
-        t212_ticker: AMZN_US_EQ
-        name: Amazon
-      - symbol: MSFT
-        t212_ticker: MSFT_US_EQ
-        name: Microsoft
+        strategy: mild
       - symbol: TSLA
         t212_ticker: TSLA_US_EQ
         name: Tesla
-        strategy_override:
-          mode: moderate
+        strategy: moderate
       - symbol: NET
         t212_ticker: NET_US_EQ
         name: Cloudflare
+        strategy: mild
       - symbol: MU
         t212_ticker: MU_US_EQ
         name: Micron
-        strategy_override:
-          mode: moderate
+        strategy: mild
       - symbol: RKLB
         t212_ticker: VACQ_US_EQ
         name: RocketLab
+        strategy: mild
       - symbol: AMD
         t212_ticker: AMD_US_EQ
         name: AMD
-        strategy_override:
-          mode: moderate
+        strategy: mild
       - symbol: MELI
         t212_ticker: MELI_US_EQ
         name: Mercado Libre
-        strategy_override:
-          mode: moderate
+        strategy: moderate
       - symbol: SHOP
         t212_ticker: SHOP_US_EQ
         name: Shopify
-      - symbol: BEPC
-        t212_ticker: BEPC_US_EQ
-        name: Brookfield Renewable
+        strategy: mild
       - symbol: NVDA
         t212_ticker: NVDA_US_EQ
         name: NVIDIA
+        strategy: mild
+      - symbol: SPCX
+        t212_ticker: SPCX_US_EQ
+        name: SpaceX
+        strategy: moderate
 
   europe:
     currency: EUR
     exchange: XETRA_EURONEXT
     tickers:
-      - symbol: SAP
-        name: SAP SE
       - symbol: ASML
+        t212_ticker: ASMLa_EQ
         name: ASML Holding
-      - symbol: MC
-        name: LVMH Moet Hennessy
-      - symbol: SIE
-        name: Siemens AG
-      - symbol: ALV
-        name: Allianz SE
+        strategy: mild
 
 # Global watchlist — tracked but not auto-traded (informational only)
 watchlist:

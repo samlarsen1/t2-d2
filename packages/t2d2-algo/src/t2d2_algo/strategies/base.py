@@ -8,7 +8,7 @@ class StrategyConfig:
     """Parsed strategy configuration for a specific mode."""
     mode: str
     min_daily_dip_pct: float
-    min_weekly_dip_pct: float
+    min_weekly_dip_pct: float | None  # Only needed when require_both_timeframes
     max_position_increase_pct: float
     max_cash_deploy_pct: float
     order_type: str
@@ -21,12 +21,20 @@ class StrategyConfig:
     min_cash_reserve_gbp: float
     max_trades_per_run: int
     ticker_cooldown_hours: int
-    require_both_timeframes: bool
 
     # Analysis settings
     rsi_max_buy: float
     daily_lookback_days: int
     weekly_lookback_days: int
+
+    # Per-mode: also require the weekly dip to reach min_weekly_dip_pct
+    require_both_timeframes: bool = False
+
+    def __post_init__(self) -> None:
+        if self.require_both_timeframes and self.min_weekly_dip_pct is None:
+            raise ValueError(
+                f"Strategy {self.mode!r}: require_both_timeframes needs min_weekly_dip_pct"
+            )
 
 
 @dataclass
@@ -42,11 +50,15 @@ class TradeDecision:
     current_price: float
     limit_price: float | None = None
     t212_ticker: str | None = None  # T212 instrument code, falls back to ticker if unset
+    strategy: str | None = None  # Strategy mode that produced this decision
+    quantity: float = 0.0  # Shares to buy, from trade_value_gbp converted via FX
+    currency: str | None = None  # Quote currency of current/limit price
 
     def __str__(self) -> str:
+        label = f"{self.ticker} [{self.strategy}]" if self.strategy else self.ticker
         if self.should_trade:
-            order = f"BUY £{self.trade_value_gbp:.2f}"
+            order = f"BUY £{self.trade_value_gbp:.2f} ({self.quantity} shares)"
             if self.limit_price:
-                order += f" @ limit {self.limit_price:.4f}"
-            return f"{self.ticker}: {order} | {self.reason}"
-        return f"{self.ticker}: SKIP | {self.reason}"
+                order += f" @ limit {self.limit_price:.2f} {self.currency or ''}".rstrip()
+            return f"{label}: {order} | {self.reason}"
+        return f"{label}: SKIP | {self.reason}"
