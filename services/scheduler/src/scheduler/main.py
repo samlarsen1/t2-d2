@@ -117,15 +117,16 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
     async with Trading212Client(api_key=api_key, api_secret=api_secret, base_url=base_url) as client:  # noqa: E501
         # Fetch account state
-        cash = await client.get_account_cash()
+        summary = await client.get_account_summary()
         positions = await client.get_positions()
-        available_cash = float(cash.free)
-        total_portfolio = float(cash.invested) + available_cash
+        available_cash = float(summary.cash.available_to_trade)
+        invested = float(summary.investments.current_value)
+        total_portfolio = invested + available_cash
 
         log.info(
             "account_state",
             free_cash=available_cash,
-            invested=float(cash.invested),
+            invested=invested,
             positions=len(positions),
         )
 

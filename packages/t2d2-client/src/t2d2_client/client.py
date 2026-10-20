@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from types import TracebackType
 from typing import Any
 
 import httpx
@@ -20,8 +21,7 @@ from tenacity import (
 )
 
 from .models import (
-    AccountCash,
-    AccountMetadata,
+    AccountSummary,
     HistoricalOrder,
     Order,
     OrderType,
@@ -70,7 +70,12 @@ class Trading212Client:
     async def __aenter__(self) -> Trading212Client:
         return self
 
-    async def __aexit__(self, *args: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self._client.aclose()
 
     async def close(self) -> None:
@@ -103,33 +108,28 @@ class Trading212Client:
     # Account
     # -------------------------------------------------------------------------
 
-    async def get_account_cash(self) -> AccountCash:
-        """Fetch available ISA cash balance."""
-        data = await self._request("GET", "/api/v0/equity/account/cash")
-        return AccountCash.model_validate(data)
-
-    async def get_account_metadata(self) -> AccountMetadata:
-        data = await self._request("GET", "/api/v0/equity/account/info")
-        return AccountMetadata.model_validate(data)
+    async def get_account_summary(self) -> AccountSummary:
+        """Fetch cash and investment totals for the account."""
+        data = await self._request("GET", "/api/v0/equity/account/summary")
+        return AccountSummary.model_validate(data)
 
     # -------------------------------------------------------------------------
-    # Portfolio
+    # Positions
     # -------------------------------------------------------------------------
 
     async def get_positions(self) -> list[Position]:
         """Fetch all open positions."""
-        data = await self._request("GET", "/api/v0/equity/portfolio")
+        data = await self._request("GET", "/api/v0/equity/positions")
         return [Position.model_validate(p) for p in data]
 
     async def get_position(self, ticker: str) -> Position | None:
         """Fetch a specific position, returns None if not held."""
-        try:
-            data = await self._request("GET", f"/api/v0/equity/portfolio/{ticker}")
-            return Position.model_validate(data)
-        except Trading212Error as e:
-            if e.status_code == 404:
-                return None
-            raise
+        data = await self._request("GET", "/api/v0/equity/positions", params={"ticker": ticker})
+        for p in data:
+            position = Position.model_validate(p)
+            if position.ticker == ticker:
+                return position
+        return None
 
     # -------------------------------------------------------------------------
     # Orders

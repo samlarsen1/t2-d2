@@ -1,21 +1,27 @@
 from .client import Trading212Client
 from .models import (
-    AccountCash,
-    AccountMetadata,
+    AccountSummary,
+    Cash,
+    Instrument,
+    Investments,
     Order,
     OrderStatus,
     OrderType,
     Position,
+    PositionWalletImpact,
     TimeValidity,
 )
 
 __all__ = [
     "Trading212Client",
-    "AccountCash",
-    "AccountMetadata",
+    "AccountSummary",
+    "Cash",
+    "Instrument",
+    "Investments",
     "Order",
     "OrderStatus",
     "OrderType",
     "Position",
+    "PositionWalletImpact",
     "TimeValidity",
 ]

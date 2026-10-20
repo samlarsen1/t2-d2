@@ -36,42 +36,77 @@ class TimeValidity(StrEnum):
     DAY = "DAY"
 
 
-class AccountCash(BaseModel):
-    free: Decimal
-    invested: Decimal
-    ppl: Decimal  # Profit/loss
-    result: Decimal
-    blocked: Decimal | None = None
-    pie_cash: Decimal | None = Field(None, alias="pieCash")
+class Cash(BaseModel):
+    available_to_trade: Decimal = Field(alias="availableToTrade")
+    in_pies: Decimal = Field(Decimal(0), alias="inPies")
+    reserved_for_orders: Decimal = Field(Decimal(0), alias="reservedForOrders")
 
     model_config = {"populate_by_name": True}
 
 
-class AccountMetadata(BaseModel):
+class Investments(BaseModel):
+    current_value: Decimal = Field(alias="currentValue")
+    total_cost: Decimal = Field(alias="totalCost")
+    realized_profit_loss: Decimal = Field(Decimal(0), alias="realizedProfitLoss")
+    unrealized_profit_loss: Decimal = Field(Decimal(0), alias="unrealizedProfitLoss")
+
+    model_config = {"populate_by_name": True}
+
+
+class AccountSummary(BaseModel):
+    """Account cash and investment totals, in the account's primary currency."""
+
     id: int
-    currency_code: str = Field(alias="currencyCode")
-    account_type: str = Field(alias="type")
+    currency: str
+    cash: Cash
+    investments: Investments
+    total_value: Decimal = Field(alias="totalValue")
+
+    model_config = {"populate_by_name": True}
+
+
+class Instrument(BaseModel):
+    ticker: str
+    name: str | None = None
+    isin: str | None = None
+    currency: str | None = None  # Instrument currency (ISO 4217)
+
+
+class PositionWalletImpact(BaseModel):
+    """A position's value and P/L expressed in the account currency."""
+
+    currency: str
+    current_value: Decimal = Field(alias="currentValue")
+    total_cost: Decimal = Field(alias="totalCost")
+    unrealized_profit_loss: Decimal = Field(alias="unrealizedProfitLoss")
+    fx_impact: Decimal | None = Field(None, alias="fxImpact")
 
     model_config = {"populate_by_name": True}
 
 
 class Position(BaseModel):
-    ticker: str
+    instrument: Instrument
     quantity: Decimal
-    average_price: Decimal = Field(alias="averagePrice")
+    # Prices are per share, in the instrument currency
+    average_price: Decimal = Field(alias="averagePricePaid")
     current_price: Decimal = Field(alias="currentPrice")
-    ppl: Decimal
-    fx_ppl: Decimal | None = Field(None, alias="fxPpl")
-    frontend: str | None = None
-    max_buy: Decimal | None = Field(None, alias="maxBuy")
-    max_sell: Decimal | None = Field(None, alias="maxSell")
-    pie_quantity: Decimal | None = Field(None, alias="pieQuantity")
+    quantity_available_for_trading: Decimal | None = Field(
+        None, alias="quantityAvailableForTrading"
+    )
+    quantity_in_pies: Decimal | None = Field(None, alias="quantityInPies")
+    created_at: datetime | None = Field(None, alias="createdAt")
+    wallet_impact: PositionWalletImpact = Field(alias="walletImpact")
 
     model_config = {"populate_by_name": True}
 
     @property
+    def ticker(self) -> str:
+        return self.instrument.ticker
+
+    @property
     def market_value(self) -> Decimal:
-        return self.quantity * self.current_price
+        """Current position value in the account currency."""
+        return self.wallet_impact.current_value
 
     @property
     def pnl_pct(self) -> Decimal:
