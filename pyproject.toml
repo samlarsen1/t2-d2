@@ -3,7 +3,6 @@ members = [
     "packages/t2d2-client",
     "packages/t2d2-market-data",
     "packages/t2d2-algo",
-    "packages/t2d2-notifier",
     "services/scheduler",
 ]
 

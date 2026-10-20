@@ -33,10 +33,10 @@ sessions:
 
   daily_close_wrap:
     cron: "0 21 * * 1-5"           # 21:00 UTC = 17:00 ET (after US close)
-    description: End-of-day portfolio summary notification
+    description: End-of-day portfolio summary
     enabled: true
     markets: [uk, europe, us]
-    action: report                  # No trades, only pushes summary notification
+    action: report                  # No trades, only logs a portfolio summary
 
 # Blackout dates — no trading on these dates (YYYY-MM-DD)
 # These are approximate; update annually

@@ -8,7 +8,7 @@ Orchestrates the full trading cycle:
   3. Pull market data for configured tickers
   4. Run algo engine to generate decisions
   5. Execute trades (or dry-run)
-  6. Send notifications (log + optional webhook)
+  6. Log executed trades and a session summary
 """
 from __future__ import annotations
 
@@ -29,7 +29,6 @@ from t2d2_algo.strategies.base import TradeDecision
 from t2d2_client import Trading212Client
 from t2d2_client.models import OrderStatus
 from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
-from t2d2_notifier import TradeNotification, WebhookNotifier
 
 load_dotenv()
 
@@ -90,7 +89,6 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     api_secret = os.environ["T212_API_SECRET"]
     base_url = os.getenv("T212_BASE_URL", "https://live.trading212.com")
     strategy_mode = os.getenv("STRATEGY_MODE")
-    webhook_url = os.getenv("WEBHOOK_URL")
 
     schedules = load_schedules_config()
     session_cfg = schedules["sessions"].get(session)
@@ -117,8 +115,6 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     strategy_config = load_strategy_config(CONFIG_DIR, strategy_mode)
     stocks_cfg = load_stocks_config()
 
-    notifier = WebhookNotifier(webhook_url=webhook_url)
-
     async with Trading212Client(api_key=api_key, api_secret=api_secret, base_url=base_url) as client:  # noqa: E501
         # Fetch account state
         cash = await client.get_account_cash()
@@ -142,12 +138,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
         # Report-only sessions
         if action == "report":
-            notifier.send_session_report(
-                session=session,
-                trades_count=0,
-                total_deployed=0.0,
-                cash_remaining=available_cash,
-            )
+            log.info("session_report", session=session, cash_remaining_gbp=available_cash)
             return result
 
         # Fetch market data for session tickers
@@ -258,32 +249,23 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                 result.executed_trades.append(decision)
                 available_cash -= decision.trade_value_gbp
 
-                notif = TradeNotification(
+                log.info(
+                    "trade_executed",
                     ticker=decision.ticker,
                     action="BUY",
-                    value_gbp=decision.trade_value_gbp,
+                    value_gbp=round(decision.trade_value_gbp, 2),
                     price=decision.current_price,
-                    daily_change_pct=decision.daily_change_pct,
-                    weekly_change_pct=decision.weekly_change_pct,
-                    session=session,
-                    strategy_mode=strategy_config.mode,
+                    daily_change_pct=round(decision.daily_change_pct, 2),
+                    weekly_change_pct=round(decision.weekly_change_pct, 2),
                     dry_run=dry_run,
                 )
-                notifier.send_trade(notif)
 
         log.info("run_complete", **{
             "session": session,
             "trades": len(result.executed_trades),
             "deployed_gbp": result.total_deployed_gbp,
+            "cash_remaining_gbp": available_cash,
         })
-
-        if result.executed_trades:
-            notifier.send_session_report(
-                session=session,
-                trades_count=len(result.executed_trades),
-                total_deployed=result.total_deployed_gbp,
-                cash_remaining=available_cash,
-            )
 
     return result
 
