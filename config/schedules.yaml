@@ -48,6 +48,16 @@ blackout_dates:
     - "2026-05-04"  # Early May Bank Holiday
     - "2026-05-25"  # Spring Bank Holiday
     - "2026-08-31"  # Summer Bank Holiday
+    - "2026-12-25"  # Christmas Day
+    - "2026-12-28"  # Boxing Day (substitute day, 26 Dec is a Saturday)
+    - "2027-01-01"  # New Year
+    - "2027-03-26"  # Good Friday
+    - "2027-03-29"  # Easter Monday
+    - "2027-05-03"  # Early May Bank Holiday
+    - "2027-05-31"  # Spring Bank Holiday
+    - "2027-08-30"  # Summer Bank Holiday
+    - "2027-12-27"  # Christmas Day (substitute day, 25 Dec is a Saturday)
+    - "2027-12-28"  # Boxing Day (substitute day, 26 Dec is a Sunday)
 
   us:
     - "2026-01-01"  # New Year
@@ -55,7 +65,21 @@ blackout_dates:
     - "2026-02-16"  # Presidents Day
     - "2026-04-03"  # Good Friday
     - "2026-05-25"  # Memorial Day
+    - "2026-06-19"  # Juneteenth
     - "2026-07-03"  # Independence Day (observed)
     - "2026-09-07"  # Labor Day
     - "2026-11-26"  # Thanksgiving
     - "2026-11-27"  # Day after Thanksgiving (early close)
+    - "2026-12-25"  # Christmas Day
+    - "2027-01-01"  # New Year
+    - "2027-01-18"  # MLK Day
+    - "2027-02-15"  # Presidents Day
+    - "2027-03-26"  # Good Friday
+    - "2027-05-31"  # Memorial Day
+    - "2027-06-18"  # Juneteenth (observed, 19 Jun is a Saturday)
+    - "2027-07-05"  # Independence Day (observed, 4 Jul is a Sunday)
+    - "2027-09-06"  # Labor Day
+    - "2027-11-25"  # Thanksgiving
+    - "2027-11-26"  # Day after Thanksgiving (early close)
+    - "2027-12-24"  # Christmas Day (observed, 25 Dec is a Saturday)
+    - "2027-12-31"  # New Year 2028 (observed, 1 Jan 2028 is a Saturday)
