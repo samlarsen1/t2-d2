@@ -5,7 +5,7 @@ whether a ticker is in a downtrend worth buying into.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import pandas as pd
 
@@ -115,10 +115,16 @@ class TrendAnalyser:
         return signal
 
     def analyse_many(self, data_map: dict[str, OHLCVData]) -> dict[str, TrendSignal]:
+        """Analyse each entry, labelling every signal with its ``data_map`` key.
+
+        The key (the stocks.yaml symbol, e.g. ``"CWR"``) replaces the provider's
+        ticker (e.g. ``"CWR.L"``) so downstream checks such as the trade
+        cooldown match on the same name.
+        """
         signals: dict[str, TrendSignal] = {}
         for ticker, data in data_map.items():
             try:
-                signals[ticker] = self.analyse(data)
+                signals[ticker] = replace(self.analyse(data), ticker=ticker)
             except Exception as e:
                 logger.warning("Analysis failed for %s: %s", ticker, e)
         return signals

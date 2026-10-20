@@ -10,7 +10,7 @@ modes:
     # Minimum daily decline before considering a buy
     min_daily_dip_pct: -3.0
     # Minimum weekly decline to confirm downtrend
-    min_weekly_dip_pct: -5.0
+    min_weekly_dip_pct: -4.0
     # Optional flag to require both daily and weekly trends
     require_both_timeframes: true
     # Maximum additional investment as % of current position value
@@ -46,7 +46,7 @@ modes:
     max_position_increase_pct: 15.0
     max_cash_deploy_pct: 15.0
     order_type: limit
-    limit_discount_pct: 0.2
+    limit_discount_pct: 0.1
     max_portfolio_weight_pct: 17.5
     min_trade_gbp: 50.0
 
