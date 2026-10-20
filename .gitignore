@@ -34,10 +34,10 @@ service-account*.json
 *.tfstate.*
 *.tfplan
 .terraform.lock.hcl
-terraform.tfvars
+crash.log
+crash.*.log
+*.tfvars
 !*.tfvars.example
-environments/*.tfvars
-!environments/*.tfvars.example
 
 # Android
 apps/android/.gradle/
