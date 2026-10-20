@@ -1,38 +1,40 @@
 # T2-D2 Schedule Configuration
-# All times in UTC. Schedules align with major market open/close windows.
-# Cron expressions (use with a local crontab): minute hour day month day-of-week
+# Each session runs at a fixed time in its market's local time zone, so runs
+# track daylight-saving changes automatically.
+# `schedule` uses systemd OnCalendar format; install.md generates the systemd
+# timers from it. After changing a schedule, re-run install.md step 7.
 
 sessions:
   eu_morning:
-    cron: "30 7 * * 1-5"          # 07:30 UTC = 08:30 GMT / 09:30 CET
+    schedule: "Mon..Fri 08:30 Europe/London"     # 30 min after LSE/Xetra/Euronext open (08:00)
     description: EU/London market open
     enabled: true
     markets: [uk, europe]
     action: trade                   # trade | analyse | report
 
   eu_afternoon:
-    cron: "0 13 * * 1-5"           # 13:00 UTC = 14:00 BST / 15:00 CET
-    description: EU mid-session rebalance
+    schedule: "Mon..Fri 15:30 Europe/London"     # 1 hour before LSE/Xetra/Euronext close (16:30)
+    description: EU pre-close session
     enabled: true
     markets: [uk, europe]
     action: trade
 
   us_morning:
-    cron: "30 14 * * 1-5"          # 14:30 UTC = 09:30 ET (NYSE/NASDAQ open)
+    schedule: "Mon..Fri 10:00 America/New_York"  # 30 min after NYSE/NASDAQ open (09:30)
     description: US market open
     enabled: true
     markets: [us]
     action: trade
 
   us_afternoon:
-    cron: "30 18 * * 1-5"          # 18:30 UTC = 13:30 ET
-    description: US afternoon session
+    schedule: "Mon..Fri 15:00 America/New_York"  # 1 hour before NYSE/NASDAQ close (16:00)
+    description: US pre-close session
     enabled: true
     markets: [us]
     action: trade
 
   daily_close_wrap:
-    cron: "0 21 * * 1-5"           # 21:00 UTC = 17:00 ET (after US close)
+    schedule: "Mon..Fri 17:00 America/New_York"  # after US close
     description: End-of-day portfolio summary
     enabled: true
     markets: [uk, europe, us]

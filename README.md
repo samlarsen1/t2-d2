@@ -41,10 +41,19 @@ Each run:
 
 ---
 
-## Schedules (UTC)
+## Schedules
 
-| Window             | Cron (UTC)    | Purpose                          |
-|--------------------|---------------|----------------------------------|
+Times are in each market's local time zone, so they follow daylight-saving changes. Source of truth: `config/schedules.yaml`.
+
+| Session            | Runs (Mon–Fri)            | Purpose                          |
+|--------------------|---------------------------|----------------------------------|
+| `eu_morning`       | 08:30 Europe/London       | 30 min after London/Frankfurt open |
+| `eu_afternoon`     | 15:30 Europe/London       | 1 hour before London/Frankfurt close |
+| `us_morning`       | 10:00 America/New_York    | 30 min after NYSE/NASDAQ open    |
+| `us_afternoon`     | 15:00 America/New_York    | 1 hour before NYSE/NASDAQ close  |
+| `daily_close_wrap` | 17:00 America/New_York    | End-of-day summary (after US close) |
+
+--------------------|---------------|----------------------------------|
 | EU Morning Open    | `30 7 * * 1-5` | London/Frankfurt open (8:30 BST) |
 | EU Afternoon       | `0 13 * * 1-5` | Mid-session rebalance            |
 | US Morning Open    | `30 14 * * 1-5`| NYSE/NASDAQ open (9:30 ET)       |
@@ -85,20 +94,9 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-### Scheduling Locally (cron)
+### Running on a Schedule (Raspberry Pi / Linux)
 
-Add entries to your crontab (`crontab -e`) matching the session times above. Times are UTC, so set `CRON_TZ=UTC` (or convert to your local time):
-
-```cron
-CRON_TZ=UTC
-30 7  * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session eu_morning       >> logs/scheduler.log 2>&1
-0  13 * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session eu_afternoon     >> logs/scheduler.log 2>&1
-30 14 * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session us_morning       >> logs/scheduler.log 2>&1
-30 18 * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session us_afternoon     >> logs/scheduler.log 2>&1
-0  21 * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session daily_close_wrap >> logs/scheduler.log 2>&1
-```
-
-Create the log directory first with `mkdir -p logs` (it is gitignored). Runs are dry-run unless `.env` sets `DRY_RUN=false`.
+See [install.md](install.md) for installing from GitHub with uv and running every session automatically with systemd timers.
 
 ---
 
