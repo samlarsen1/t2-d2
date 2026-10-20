@@ -59,5 +59,7 @@ apps/android/app/google-services.json
 *.log
 logs/
 
+# AI Tools
+.headroom/
 # Docker
 # .dockerignore intentionally tracked in repo
