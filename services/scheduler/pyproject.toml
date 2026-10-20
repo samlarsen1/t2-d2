@@ -1,7 +1,7 @@
 [project]
 name = "t2d2-scheduler"
 version = "0.1.0"
-description = "T2-D2 Cloud Run Job scheduler entrypoint"
+description = "T2-D2 scheduler entrypoint"
 requires-python = ">=3.12"
 dependencies = [
     "t2d2-client",

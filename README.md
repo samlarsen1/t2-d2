@@ -2,7 +2,7 @@
 
 > "Beep boop. Buy the dip." — T2-D2
 
-A fully automated, schedule-driven DCA (Dollar Cost Averaging) trading bot for Trading212 ISAs, hosted serverlessly on GCP. Monitors configured stock tickers across UK, US, and European markets — identifying downtrends and incrementally increasing positions within configurable risk thresholds.
+A fully automated, schedule-driven DCA (Dollar Cost Averaging) trading bot for Trading212 ISAs, run locally from the command line. Monitors configured stock tickers across UK, US, and European markets — identifying downtrends and incrementally increasing positions within configurable risk thresholds.
 
 ---
 
@@ -17,9 +17,7 @@ t2-d2/
 │   ├── t2d2-algo/           # Algorithm engine (mild → aggressive strategies)
 │   └── t2d2-notifier/       # FCM push notifications + webhook dispatch
 ├── services/
-│   └── scheduler/           # Cloud Run Job entrypoint (triggered by Cloud Scheduler)
-├── infra/
-│   └── terraform/           # GCP infrastructure (Cloud Run, Scheduler, Secrets, Firebase)
+│   └── scheduler/           # CLI entrypoint (run manually or via cron)
 └── apps/
     └── android/             # Read-only Android app (Jetpack Compose + FCM)
 ```
@@ -28,7 +26,7 @@ t2-d2/
 
 ## Trading Logic
 
-Each scheduled run:
+Each run:
 1. Fetches available ISA cash balance from Trading212
 2. Pulls daily + weekly OHLCV data for configured tickers
 3. Analyses trend direction and magnitude per ticker
@@ -63,10 +61,8 @@ Each scheduled run:
 ### Prerequisites
 - Python 3.12+
 - [uv](https://github.com/astral-sh/uv) package manager
-- Terraform >= 1.7
-- GCP project with billing enabled
 - Trading212 API key (live or demo)
-- Firebase project (for push notifications)
+- Firebase project (optional, for push notifications)
 
 ### Local Setup
 
@@ -93,14 +89,20 @@ pre-commit install
 pre-commit run --all-files
 ```
 
-### GCP Deployment
+### Scheduling Locally (cron)
 
-```bash
-cd infra/terraform
-terraform init
-terraform workspace new prod
-terraform apply -var-file=environments/prod.tfvars
+Add entries to your crontab (`crontab -e`) matching the session times above. Times are UTC, so set `CRON_TZ=UTC` (or convert to your local time):
+
+```cron
+CRON_TZ=UTC
+30 7  * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session eu_morning       >> logs/scheduler.log 2>&1
+0  13 * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session eu_afternoon     >> logs/scheduler.log 2>&1
+30 14 * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session us_morning       >> logs/scheduler.log 2>&1
+30 18 * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session us_afternoon     >> logs/scheduler.log 2>&1
+0  21 * * 1-5  cd /path/to/t2-d2 && .venv/bin/python services/scheduler/src/scheduler/main.py --session daily_close_wrap >> logs/scheduler.log 2>&1
 ```
+
+Create the log directory first with `mkdir -p logs` (it is gitignored). Runs are dry-run unless `.env` sets `DRY_RUN=false`.
 
 ---
 
@@ -132,7 +134,6 @@ Runs on Pixel phones and Chromebooks (ChromeOS Play Store).
 | `T212_BASE_URL`           | `https://live.trading212.com` or demo URL    |
 | `FIREBASE_CREDENTIALS`    | Path to Firebase service account JSON        |
 | `FCM_TOPIC`               | FCM topic for broadcast pushes               |
-| `GCP_PROJECT_ID`          | GCP project identifier                       |
 | `STRATEGY_MODE`           | `mild` / `moderate` / `aggressive`           |
 | `DRY_RUN`                 | `true` to simulate without placing orders    |
 
