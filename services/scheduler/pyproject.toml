@@ -7,7 +7,6 @@ dependencies = [
     "t2d2-client",
     "t2d2-market-data",
     "t2d2-algo",
-    "t2d2-notifier",
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
     "structlog>=24.1",
@@ -17,7 +16,6 @@ dependencies = [
 t2d2-client = { workspace = true }
 t2d2-market-data = { workspace = true }
 t2d2-algo = { workspace = true }
-t2d2-notifier = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
