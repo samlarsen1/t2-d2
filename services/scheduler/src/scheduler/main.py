@@ -8,7 +8,7 @@ Orchestrates the full trading cycle:
   3. Pull market data for configured tickers
   4. Run algo engine to generate decisions
   5. Execute trades (or dry-run)
-  6. Send push notifications
+  6. Send notifications (log + optional webhook)
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from t2d2_algo.strategies.base import TradeDecision
 from t2d2_client import Trading212Client
 from t2d2_client.models import OrderStatus
 from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
-from t2d2_notifier import FCMNotifier, TradeNotification
+from t2d2_notifier import TradeNotification, WebhookNotifier
 
 load_dotenv()
 
@@ -90,8 +90,6 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     api_secret = os.environ["T212_API_SECRET"]
     base_url = os.getenv("T212_BASE_URL", "https://live.trading212.com")
     strategy_mode = os.getenv("STRATEGY_MODE")
-    firebase_creds = os.getenv("FIREBASE_CREDENTIALS")
-    fcm_topic = os.getenv("FCM_TOPIC", "t2d2-trades")
     webhook_url = os.getenv("WEBHOOK_URL")
 
     schedules = load_schedules_config()
@@ -119,11 +117,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     strategy_config = load_strategy_config(CONFIG_DIR, strategy_mode)
     stocks_cfg = load_stocks_config()
 
-    notifier = FCMNotifier(
-        credentials_path=firebase_creds,
-        topic=fcm_topic,
-        webhook_url=webhook_url,
-    )
+    notifier = WebhookNotifier(webhook_url=webhook_url)
 
     async with Trading212Client(api_key=api_key, api_secret=api_secret, base_url=base_url) as client:  # noqa: E501
         # Fetch account state
