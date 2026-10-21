@@ -5,7 +5,12 @@ import json
 
 import httpx
 import pytest
-from scheduler.telegram import TelegramNotifier, format_trade_message
+from scheduler.telegram import (
+    TelegramNotifier,
+    format_daily_wrap_message,
+    format_no_trades_message,
+    format_trade_message,
+)
 from t2d2_algo.strategies.base import TradeDecision
 
 TOKEN = "123456:TEST-token"
@@ -49,6 +54,31 @@ def test_format_trade_message_dry_run_market_order() -> None:
 
     assert text.startswith("[DRY RUN] T2-D2 BUY TSLA")
     assert "Limit" not in text
+
+
+def test_format_no_trades_message() -> None:
+    assert format_no_trades_message("us_afternoon", dry_run=False) == (
+        "T2-D2: no trades today\nSession: us_afternoon"
+    )
+    assert format_no_trades_message("us_afternoon", dry_run=True).startswith(
+        "[DRY RUN] T2-D2: no trades today"
+    )
+
+
+def test_format_daily_wrap_message() -> None:
+    text = format_daily_wrap_message(1276.3, 69192.17, 32, orders_filled_today=2)
+
+    assert text.splitlines() == [
+        "T2-D2 daily wrap",
+        "Cash: £1,276.30 | Invested: £69,192.17 | Positions: 32",
+        "Orders filled today: 2",
+    ]
+
+
+def test_format_daily_wrap_message_without_order_history() -> None:
+    text = format_daily_wrap_message(1276.3, 69192.17, 32, orders_filled_today=None)
+
+    assert "Orders filled today" not in text
 
 
 def test_from_env_requires_token_and_chat_id(monkeypatch: pytest.MonkeyPatch) -> None:

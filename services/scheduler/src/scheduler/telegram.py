@@ -1,4 +1,4 @@
-"""Telegram notifications for executed trades.
+"""Telegram notifications for executed trades, or a note when there are none.
 
 Enabled when both ``TELEGRAM_BOT_TOKEN`` and ``TELEGRAM_CHAT_ID`` are set.
 A failed notification is logged and never stops the trading run.
@@ -43,6 +43,46 @@ def format_trade_message(decision: TradeDecision, session: str, dry_run: bool) -
     url = instrument_url(decision.t212_ticker or decision.ticker)
     if url:
         lines.append(url)
+    return "\n".join(lines)
+
+
+def format_no_trades_message(session: str, dry_run: bool) -> str:
+    """Build the Telegram message sent when a session places no trades.
+
+    Args:
+        session: Session that ran.
+        dry_run: Whether the run was a dry run.
+
+    Returns:
+        Message text.
+    """
+    prefix = "[DRY RUN] " if dry_run else ""
+    return f"{prefix}T2-D2: no trades today\nSession: {session}"
+
+
+def format_daily_wrap_message(
+    cash_gbp: float,
+    invested_gbp: float,
+    positions: int,
+    orders_filled_today: int | None,
+) -> str:
+    """Build the end-of-day portfolio summary message.
+
+    Args:
+        cash_gbp: Free cash available to trade.
+        invested_gbp: Current value of all positions.
+        positions: Number of open positions.
+        orders_filled_today: Orders filled today, or None if order history was unavailable.
+
+    Returns:
+        Message text.
+    """
+    lines = [
+        "T2-D2 daily wrap",
+        f"Cash: £{cash_gbp:,.2f} | Invested: £{invested_gbp:,.2f} | Positions: {positions}",
+    ]
+    if orders_filled_today is not None:
+        lines.append(f"Orders filled today: {orders_filled_today}")
     return "\n".join(lines)
 
 

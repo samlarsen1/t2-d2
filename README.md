@@ -108,7 +108,7 @@ See [install.md](install.md) for installing from GitHub with uv and running ever
 
 ## Telegram Notifications
 
-Optional: get a Telegram message for every executed (or simulated) trade, with a link to the instrument.
+Optional: get a Telegram message for every executed (or simulated) trade, with a link to the instrument. A session that places no trades sends a single "no trades today" message instead, and `daily_close_wrap` sends a portfolio summary (cash, invested value, positions, orders filled today).
 
 1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the token it gives you.
 2. Open your new bot and send it any message (bots can only message chats that have messaged them first).
@@ -152,7 +152,7 @@ See `config/` for:
 | `T212_API_KEY`            | Trading212 API key                           |
 | `T212_BASE_URL`           | `https://live.trading212.com` or demo URL    |
 | `DRY_RUN`                 | `true` (default) simulates without placing orders; `false` places real orders. Overridden by `--dry-run` / `--no-dry-run` |
-| `TELEGRAM_BOT_TOKEN`      | Optional. Telegram bot token from @BotFather; with `TELEGRAM_CHAT_ID`, sends a message per executed trade |
+| `TELEGRAM_BOT_TOKEN`      | Optional. Telegram bot token from @BotFather; with `TELEGRAM_CHAT_ID`, sends a message per executed trade (or "no trades today") and a daily wrap summary |
 | `TELEGRAM_CHAT_ID`        | Optional. Chat to send trade messages to (see [Telegram Notifications](#telegram-notifications)) |
 
 ---
