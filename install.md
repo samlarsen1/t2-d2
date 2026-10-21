@@ -94,6 +94,9 @@ strategy is set in `config/stocks.yaml`, not `.env`. **Leave `DRY_RUN=true`** un
 
 The scheduler finds `.env` in the repository root automatically.
 
+Optionally, add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` to get a Telegram message for
+every trade; see [Telegram Notifications](README.md#telegram-notifications).
+
 ## 6. Smoke-test by hand
 
 ```bash

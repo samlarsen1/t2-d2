@@ -8,7 +8,9 @@ Orchestrates the full trading cycle:
   3. Pull market data for configured tickers
   4. Run algo engine to generate decisions
   5. Execute trades (or dry-run)
-  6. Log executed trades and a session summary
+  6. Log executed trades and a session summary; notify Telegram per trade
+     (or that there were none) if configured
+  7. Report-only sessions (daily_close_wrap) send a portfolio summary to Telegram
 """
 from __future__ import annotations
 
@@ -27,8 +29,15 @@ from dotenv import load_dotenv
 from t2d2_algo import AlgoEngine, RunResult, TradeExecutor, load_strategy_configs
 from t2d2_algo.strategies.base import TradeDecision
 from t2d2_client import Trading212Client
-from t2d2_client.models import OrderStatus
+from t2d2_client.models import HistoricalOrder, OrderStatus
 from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
+
+from scheduler.telegram import (
+    TelegramNotifier,
+    format_daily_wrap_message,
+    format_no_trades_message,
+    format_trade_message,
+)
 
 load_dotenv()
 
@@ -110,6 +119,29 @@ def get_tickers_for_session(
     return result
 
 
+def start_of_today_utc() -> datetime:
+    """Return midnight UTC at the start of the current day."""
+    return datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def count_filled_orders_since(orders: list[HistoricalOrder], cutoff: datetime) -> int:
+    """Count fully or partially filled orders created at or after ``cutoff``.
+
+    Args:
+        orders: Order history from Trading212.
+        cutoff: Earliest creation time to include (timezone-aware).
+
+    Returns:
+        Number of matching orders.
+    """
+    filled = {OrderStatus.FILLED, OrderStatus.PARTIALLY_FILLED}
+    return sum(
+        1
+        for o in orders
+        if o.status in filled and o.creation_time is not None and o.creation_time >= cutoff
+    )
+
+
 async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     api_key = os.environ["T212_API_KEY"]
     api_secret = os.environ["T212_API_SECRET"]
@@ -162,6 +194,19 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
         # Report-only sessions
         if action == "report":
             log.info("session_report", session=session, cash_remaining_gbp=available_cash)
+            report_notifier = TelegramNotifier.from_env()
+            if report_notifier:
+                orders_filled_today: int | None = None
+                try:
+                    history = await client.get_order_history(limit=50)
+                    orders_filled_today = count_filled_orders_since(history, start_of_today_utc())
+                except Exception as e:
+                    log.warning("order_history_unavailable", error_type=type(e).__name__)
+                await report_notifier.send(
+                    format_daily_wrap_message(
+                        available_cash, invested, len(positions), orders_filled_today
+                    )
+                )
             return result
 
         # Fetch market data for session tickers
@@ -264,6 +309,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
         # Execute
         executor = TradeExecutor(client=client, dry_run=dry_run)
+        notifier = TelegramNotifier.from_env()
 
         for decision in ranked:
             success = await executor.execute(decision)
@@ -285,6 +331,11 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                     weekly_change_pct=round(decision.weekly_change_pct, 2),
                     dry_run=dry_run,
                 )
+                if notifier:
+                    await notifier.send(format_trade_message(decision, session, dry_run))
+
+        if notifier and not result.executed_trades:
+            await notifier.send(format_no_trades_message(session, dry_run))
 
         log.info("run_complete", **{
             "session": session,
