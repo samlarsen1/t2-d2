@@ -106,6 +106,36 @@ See [install.md](install.md) for installing from GitHub with uv and running ever
 
 ---
 
+## Telegram Notifications
+
+Optional: get a Telegram message for every executed (or simulated) trade, with a link to the instrument.
+
+1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the token it gives you.
+2. Open your new bot and send it any message (bots can only message chats that have messaged them first).
+3. Find your chat ID:
+
+   ```bash
+   curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" | grep -o '"chat":{"id":[0-9-]*'
+   ```
+
+4. Add both to `.env`:
+
+   ```bash
+   TELEGRAM_BOT_TOKEN=<TOKEN>
+   TELEGRAM_CHAT_ID=<CHAT_ID>
+   ```
+
+5. Send a test message:
+
+   ```bash
+   set -a; . ./.env; set +a
+   curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" -d chat_id="$TELEGRAM_CHAT_ID" -d text="T2-D2 test"
+   ```
+
+A failed message is logged as `telegram_send_failed` and never stops the run. Leave either variable unset to turn notifications off.
+
+---
+
 ## Configuration
 
 See `config/` for:
@@ -122,6 +152,8 @@ See `config/` for:
 | `T212_API_KEY`            | Trading212 API key                           |
 | `T212_BASE_URL`           | `https://live.trading212.com` or demo URL    |
 | `DRY_RUN`                 | `true` (default) simulates without placing orders; `false` places real orders. Overridden by `--dry-run` / `--no-dry-run` |
+| `TELEGRAM_BOT_TOKEN`      | Optional. Telegram bot token from @BotFather; with `TELEGRAM_CHAT_ID`, sends a message per executed trade |
+| `TELEGRAM_CHAT_ID`        | Optional. Chat to send trade messages to (see [Telegram Notifications](#telegram-notifications)) |
 
 ---
 

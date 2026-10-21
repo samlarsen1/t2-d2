@@ -8,7 +8,7 @@ Orchestrates the full trading cycle:
   3. Pull market data for configured tickers
   4. Run algo engine to generate decisions
   5. Execute trades (or dry-run)
-  6. Log executed trades and a session summary
+  6. Log executed trades and a session summary; notify Telegram per trade if configured
 """
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ from t2d2_algo.strategies.base import TradeDecision
 from t2d2_client import Trading212Client
 from t2d2_client.models import OrderStatus
 from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
+
+from scheduler.telegram import TelegramNotifier, format_trade_message
 
 load_dotenv()
 
@@ -264,6 +266,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
         # Execute
         executor = TradeExecutor(client=client, dry_run=dry_run)
+        notifier = TelegramNotifier.from_env()
 
         for decision in ranked:
             success = await executor.execute(decision)
@@ -285,6 +288,8 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                     weekly_change_pct=round(decision.weekly_change_pct, 2),
                     dry_run=dry_run,
                 )
+                if notifier:
+                    await notifier.send(format_trade_message(decision, session, dry_run))
 
         log.info("run_complete", **{
             "session": session,
