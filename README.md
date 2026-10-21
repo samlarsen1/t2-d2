@@ -29,7 +29,7 @@ Each run:
 3. Analyses trend direction and magnitude per ticker
 4. Applies each ticker's configured strategy (mild / moderate / aggressive) to determine if/how much to buy
 5. Executes limit or market orders via Trading212 API
-6. Logs each executed trade and a session summary
+6. Logs each executed trade and a session summary, with a Trading212 instrument page link per trade (the pattern is only confirmed for US shares; UK/EU links are best guesses)
 
 ### Strategy Modes
 

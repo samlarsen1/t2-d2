@@ -16,6 +16,7 @@ from t2d2_client import Position, Trading212Client
 from t2d2_client.models import TimeValidity
 from t2d2_market_data.analysis import TrendSignal
 
+from .links import instrument_url
 from .strategies.base import StrategyConfig, TradeDecision
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,9 @@ class RunResult:
             lines.append("\nTrades:")
             for t in self.executed_trades:
                 lines.append(f"  {t}")
+                url = instrument_url(t.t212_ticker or t.ticker)
+                if url:
+                    lines.append(f"    {url}")
         if self.errors:
             lines.append("\nErrors:")
             for e in self.errors:
