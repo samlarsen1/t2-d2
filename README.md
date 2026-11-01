@@ -118,6 +118,22 @@ git switch -c feature/min-trade-floor
 The `branch-name` hook rejects commits on any other branch, including `main`. If you installed the
 hooks before this check was added, run `pre-commit install` again to enable it.
 
+GitHub enforces the same convention with these rulesets:
+
+| Ruleset | Applies to | Rules |
+|---------|------------|-------|
+| `main` | `main` | Requires a pull request and the `Branch name` check, so only `feature/*`, `bug/*` and `task/*` branches can merge. Also requires CodeQL results, blocks deletion and force-pushes, and requests a Copilot review |
+| `branches` | `feature/**`, `bug/**`, `task/**` | Blocks force-pushes; deletion is allowed |
+| `branch-naming` | Everything else | Blocks creating the branch |
+
+Branches are deleted from GitHub automatically after merging. `branch-naming` only checks the
+prefix, so a name like `task/Bad_Name` can be pushed, but the `Branch name` check stops it merging.
+
+```bash
+# Show which rules apply to a branch name
+gh api repos/samlarsen1/t2-d2/rules/branches/task/my-change --jq '.[].type'
+```
+
 #### Vulnerability scanning
 
 These hooks block the commit on any finding:
