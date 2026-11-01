@@ -23,7 +23,7 @@ modes:
     limit_discount_pct: 0.5
     # Don't trade if position already exceeds this % of total portfolio
     max_portfolio_weight_pct: 10.0
-    # Minimum single trade size (£)
+    # Skip the trade if it would be smaller than this (£)
     min_trade_gbp: 10.0
 
   moderate:
@@ -56,6 +56,10 @@ global_limits:
   absolute_max_cash_deploy_pct: 50.0
   # Minimum cash buffer to keep in ISA at all times (£)
   min_cash_reserve_gbp: 100.0
+  # Raise any smaller percentage-based trade to this amount (£). Overrides the percentage limits
+  # but never min_cash_reserve_gbp: a trade that can't reach this without using the reserve is
+  # skipped. Set to 0 to disable.
+  min_trade_floor_gbp: 100.0
   # Maximum number of distinct trades per run
   max_trades_per_run: 3
   # Cooldown: don't re-buy a ticker within this many hours of last trade

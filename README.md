@@ -172,7 +172,7 @@ A failed message is logged as `telegram_send_failed` and never stops the run. Le
 
 See `config/` for:
 - `stocks.yaml` — ticker lists by market; every ticker must set `strategy` (`mild` / `moderate` / `aggressive`)
-- `strategy.yaml` — mode definitions and global risk limits
+- `strategy.yaml` — mode definitions and global risk limits, including `min_trade_floor_gbp`, which raises any smaller percentage-based trade to that amount without touching `min_cash_reserve_gbp`
 - `schedules.yaml` — which sessions are active and which markets they cover
 
 ---

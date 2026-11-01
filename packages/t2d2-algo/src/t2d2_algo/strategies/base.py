@@ -19,6 +19,7 @@ class StrategyConfig:
     # Global limits (shared across all modes)
     absolute_max_cash_deploy_pct: float
     min_cash_reserve_gbp: float
+    min_trade_floor_gbp: float
     max_trades_per_run: int
     ticker_cooldown_hours: int
 

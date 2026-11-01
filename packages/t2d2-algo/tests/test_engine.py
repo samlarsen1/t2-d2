@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -25,6 +26,7 @@ def make_config(**overrides: object) -> StrategyConfig:
         min_trade_gbp=10.0,
         absolute_max_cash_deploy_pct=20.0,
         min_cash_reserve_gbp=50.0,
+        min_trade_floor_gbp=0.0,
         max_trades_per_run=3,
         ticker_cooldown_hours=72,
         require_both_timeframes=False,
@@ -314,3 +316,78 @@ def test_repo_strategy_config_weekly_settings() -> None:
     for cfg in configs.values():
         if cfg.require_both_timeframes:
             assert cfg.min_weekly_dip_pct is not None
+
+
+def test_repo_strategy_config_loads_trade_floor() -> None:
+    configs = load_strategy_configs(REPO_ROOT / "config")
+    assert {cfg.min_trade_floor_gbp for cfg in configs.values()} == {100.0}
+
+
+def evaluate_with_floor(
+    available_cash: float, position: Any = None, **overrides: object
+) -> TradeDecision:
+    engine = AlgoEngine(make_config(min_trade_floor_gbp=100.0, **overrides))
+    return engine.evaluate(
+        signal=make_signal(),
+        position=position,
+        available_cash=available_cash,
+        total_portfolio_value=50000.0,
+        fx_rate=1.0,
+    )
+
+
+def test_floor_raises_small_percentage_trade() -> None:
+    decision = evaluate_with_floor(available_cash=1000.0)  # 5% = £50
+    assert decision.should_trade
+    assert decision.trade_value_gbp == 100.0
+    assert decision.quantity > 0
+
+
+def test_floor_leaves_larger_percentage_trade_unchanged() -> None:
+    decision = evaluate_with_floor(available_cash=5000.0)  # 5% = £250
+    assert decision.trade_value_gbp == 250.0
+
+
+def test_floor_overrides_position_increase_limit() -> None:
+    position = SimpleNamespace(market_value=200.0)  # 10% = £20
+    decision = evaluate_with_floor(available_cash=5000.0, position=position)
+    assert decision.trade_value_gbp == 100.0
+
+
+def test_floor_overrides_portfolio_weight_limit() -> None:
+    decision = evaluate_with_floor(available_cash=1000.0, max_portfolio_weight_pct=0.1)  # £50
+    assert decision.trade_value_gbp == 100.0
+
+
+def test_floor_skips_trade_that_would_use_cash_reserve() -> None:
+    decision = evaluate_with_floor(available_cash=149.0)  # £99 left above the £50 reserve
+    assert not decision.should_trade
+    assert "below minimum £100.00" in decision.reason
+
+
+def test_floor_allows_trade_leaving_exactly_the_reserve() -> None:
+    decision = evaluate_with_floor(available_cash=150.0)
+    assert decision.should_trade
+    assert decision.trade_value_gbp == 100.0
+
+
+def test_min_trade_gbp_still_applies_above_floor() -> None:
+    decision = evaluate_with_floor(available_cash=1000.0, min_trade_gbp=120.0)
+    assert not decision.should_trade
+    assert "below minimum £120.00" in decision.reason
+
+
+def test_preserves_cash_reserve_accounts_for_earlier_trades() -> None:
+    engine = AlgoEngine(make_config(min_cash_reserve_gbp=100.0))
+    decision = TradeDecision(
+        ticker="NET",
+        should_trade=True,
+        trade_value_gbp=100.0,
+        reason="",
+        daily_change_pct=-5.0,
+        weekly_change_pct=-8.0,
+        rsi=35.0,
+        current_price=100.0,
+    )
+    assert engine.preserves_cash_reserve(decision, available_cash=200.0)
+    assert not engine.preserves_cash_reserve(decision, available_cash=199.99)
