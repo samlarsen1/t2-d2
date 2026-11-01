@@ -1,4 +1,23 @@
+default_install_hook_types: [pre-commit, commit-msg]
+default_stages: [pre-commit]
+
 repos:
+  # Runs at commit-msg so `pre-commit run --all-files` still works on main
+  - repo: local
+    hooks:
+      - id: branch-name
+        name: branch name
+        entry: >-
+          bash -c 'branch=$(git symbolic-ref --short -q HEAD) || exit 0;
+          [[ "$branch" =~ ^(feature|bug|task)/[a-z0-9]+(-[a-z0-9]+)*$ ]] && exit 0;
+          echo "Branch \"$branch\" must be feature/<name>, bug/<name> or task/<name>,
+          where <name> is lowercase-with-hyphens. Commit on a new branch instead:
+          git switch -c task/my-change"; exit 1'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit-msg]
+
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:
