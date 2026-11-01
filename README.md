@@ -170,6 +170,10 @@ gh workflow run dependency-audit.yml
 `uv` also ignores package versions published in the last 7 days
 (`exclude-newer` in `pyproject.toml`), so a very recent fix may need a short wait.
 
+Dependabot checks weekly for newer GitHub Actions versions and opens a pull request for each one
+(config in `.github/dependabot.yml`). It keeps them pinned to commit SHAs and skips versions published
+in the last 7 days. Python packages aren't included, so `uv.lock` updates are still manual.
+
 ### Running on a Schedule (Raspberry Pi / Linux)
 
 See [install.md](install.md) for installing from GitHub with uv and running every session automatically with systemd timers.
