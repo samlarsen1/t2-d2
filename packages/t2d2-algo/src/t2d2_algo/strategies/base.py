@@ -20,6 +20,7 @@ class StrategyConfig:
     absolute_max_cash_deploy_pct: float
     min_cash_reserve_gbp: float
     min_trade_floor_gbp: float
+    limit_order_expiry_days: int
     max_trades_per_run: int
     ticker_cooldown_hours: int
 

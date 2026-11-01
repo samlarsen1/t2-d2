@@ -60,6 +60,9 @@ global_limits:
   # but never min_cash_reserve_gbp: a trade that can't reach this without using the reserve is
   # skipped. Set to 0 to disable.
   min_trade_floor_gbp: 100.0
+  # Cancel the bot's unfilled limit buy orders once they reach this age, at the next trading
+  # session. Trading212 has no expiry date option, so orders are placed as good-till-cancel.
+  limit_order_expiry_days: 7
   # Maximum number of distinct trades per run
   max_trades_per_run: 3
   # Cooldown: don't re-buy a ticker within this many hours of last trade

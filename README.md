@@ -140,7 +140,7 @@ See [install.md](install.md) for installing from GitHub with uv and running ever
 
 ## Telegram Notifications
 
-Optional: get a Telegram message for every executed (or simulated) trade, with a link to the instrument. A session that places no trades sends a single "no trades today" message instead, and `daily_close_wrap` sends a portfolio summary (cash, invested value, positions, orders filled today).
+Optional: get a Telegram message for every executed (or simulated) trade, with a link to the instrument. A session that places no trades sends a single "no trades today" message instead, a session that cancels expired limit orders lists them in a separate message, and `daily_close_wrap` sends a portfolio summary (cash, invested value, positions, orders filled today).
 
 1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the token it gives you.
 2. Open your new bot and send it any message (bots can only message chats that have messaged them first).
@@ -172,7 +172,7 @@ A failed message is logged as `telegram_send_failed` and never stops the run. Le
 
 See `config/` for:
 - `stocks.yaml` — ticker lists by market; every ticker must set `strategy` (`mild` / `moderate` / `aggressive`)
-- `strategy.yaml` — mode definitions and global risk limits, including `min_trade_floor_gbp`, which raises any smaller percentage-based trade to that amount without touching `min_cash_reserve_gbp`
+- `strategy.yaml` — mode definitions and global risk limits, including `min_trade_floor_gbp`, which raises any smaller percentage-based trade to that amount without touching `min_cash_reserve_gbp`, and `limit_order_expiry_days`, the age at which the bot cancels its own unfilled limit buy orders. Limit orders are placed as good-till-cancel because Trading212 has no expiry date option, so expiry happens at the next trading session after that age. Orders placed by hand are never cancelled, and a ticker with an open order isn't bought again until that order fills or is cancelled.
 - `schedules.yaml` — which sessions are active and which markets they cover
 
 ---

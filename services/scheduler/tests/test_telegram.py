@@ -7,11 +7,13 @@ import httpx
 import pytest
 from scheduler.telegram import (
     TelegramNotifier,
+    format_cancelled_orders_message,
     format_daily_wrap_message,
     format_no_trades_message,
     format_trade_message,
 )
 from t2d2_algo.strategies.base import TradeDecision
+from t2d2_client.models import Order
 
 TOKEN = "123456:TEST-token"
 
@@ -63,6 +65,42 @@ def test_format_no_trades_message() -> None:
     assert format_no_trades_message("us_afternoon", dry_run=True).startswith(
         "[DRY RUN] T2-D2: no trades today"
     )
+
+
+def make_order(ticker: str, **overrides: object) -> Order:
+    payload = {
+        "id": 1,
+        "ticker": ticker,
+        "type": "LIMIT",
+        "side": "BUY",
+        "status": "NEW",
+        "initiatedFrom": "API",
+        "quantity": 1.5,
+        "limitPrice": 180.0,
+        "currency": "USD",
+        "createdAt": "2026-10-20T09:00:00Z",
+    }
+    return Order.model_validate({**payload, **overrides})
+
+
+def test_format_cancelled_orders_message_lists_each_order() -> None:
+    orders = [
+        make_order("AAPL_US_EQ"),
+        make_order("ITMl_EQ", quantity=45.1297, limitPrice=74.77, currency="GBX", filledQuantity=5),
+    ]
+
+    assert format_cancelled_orders_message(orders, "eu_morning", dry_run=False).splitlines() == [
+        "T2-D2 cancelled 2 expired orders",
+        "AAPL_US_EQ: 1.5 shares @ limit 180.00 USD, placed 2026-10-20",
+        "ITMl_EQ: 45.1297 shares @ limit 74.77 GBX (5 filled), placed 2026-10-20",
+        "Session: eu_morning",
+    ]
+
+
+def test_format_cancelled_orders_message_dry_run_single_order() -> None:
+    text = format_cancelled_orders_message([make_order("AAPL_US_EQ")], "eu_morning", dry_run=True)
+
+    assert text.startswith("[DRY RUN] T2-D2 would cancel 1 expired order\n")
 
 
 def test_format_daily_wrap_message() -> None:

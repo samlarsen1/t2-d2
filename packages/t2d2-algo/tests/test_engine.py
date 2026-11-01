@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from t2d2_algo.engine import AlgoEngine, TradeExecutor, load_strategy_configs
 from t2d2_algo.strategies.base import StrategyConfig, TradeDecision
+from t2d2_client.models import TimeValidity
 from t2d2_market_data.analysis import TrendSignal
 
 REPO_ROOT = Path(__file__).parents[3]
@@ -27,6 +28,7 @@ def make_config(**overrides: object) -> StrategyConfig:
         absolute_max_cash_deploy_pct=20.0,
         min_cash_reserve_gbp=50.0,
         min_trade_floor_gbp=0.0,
+        limit_order_expiry_days=30,
         max_trades_per_run=3,
         ticker_cooldown_hours=72,
         require_both_timeframes=False,
@@ -267,6 +269,7 @@ async def test_executor_sends_decision_quantity_and_limit() -> None:
     assert kwargs["ticker"] == "RIOl_EQ"
     assert kwargs["limit_price"] == 6512.27
     assert kwargs["quantity"] == decision.quantity == 1.5355
+    assert kwargs["time_validity"] == TimeValidity.GTC
 
 
 def test_weekly_gate_applies_when_mode_requires_both() -> None:
@@ -321,6 +324,11 @@ def test_repo_strategy_config_weekly_settings() -> None:
 def test_repo_strategy_config_loads_trade_floor() -> None:
     configs = load_strategy_configs(REPO_ROOT / "config")
     assert {cfg.min_trade_floor_gbp for cfg in configs.values()} == {100.0}
+
+
+def test_repo_strategy_config_loads_limit_order_expiry() -> None:
+    configs = load_strategy_configs(REPO_ROOT / "config")
+    assert {cfg.limit_order_expiry_days for cfg in configs.values()} == {7}
 
 
 def evaluate_with_floor(

@@ -1,13 +1,16 @@
 """Tests for Trading212Client against mocked Trading212 API responses."""
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import httpx
 import pytest
 from t2d2_client import Trading212Client
 from t2d2_client.client import Trading212Error
+from t2d2_client.models import TimeValidity
 
 ACCOUNT_SUMMARY = {
     "id": 12345678,
@@ -126,3 +129,72 @@ async def test_server_error_raises_trading212_error() -> None:
             await client.get_positions()
 
     assert exc_info.value.status_code == 503
+
+
+async def test_place_limit_order_sends_good_till_cancel() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content)["timeValidity"] == "GOOD_TILL_CANCEL"
+        return httpx.Response(
+            200,
+            json={
+                "id": 1,
+                "ticker": "AAPL_US_EQ",
+                "type": "LIMIT",
+                "side": "BUY",
+                "status": "NEW",
+                "initiatedFrom": "API",
+                "quantity": 1.5,
+                "limitPrice": 180.0,
+                "timeInForce": "GOOD_TILL_CANCEL",
+                "createdAt": "2026-10-01T09:00:00Z",
+            },
+        )
+
+    async with make_client(handler) as client:
+        order = await client.place_limit_order(
+            ticker="AAPL_US_EQ", quantity=1.5, limit_price=180.0, time_validity=TimeValidity.GTC
+        )
+
+    assert order.side == "BUY"
+    assert order.initiated_from == "API"
+
+
+async def test_get_order_history_reads_fill_time() -> None:
+    order = {
+        "id": 1,
+        "ticker": "AAPL_US_EQ",
+        "type": "LIMIT",
+        "status": "FILLED",
+        "createdAt": "2026-10-01T09:00:00Z",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {"order": order, "fill": {"filledAt": "2026-10-20T14:00:00Z"}},
+                    {"order": {**order, "id": 2, "status": "CANCELLED"}, "fill": None},
+                ],
+                "nextPagePath": None,
+            },
+        )
+
+    async with make_client(handler) as client:
+        filled, cancelled = await client.get_order_history()
+
+    assert filled.filled_at == datetime(2026, 10, 20, 14, tzinfo=UTC)
+    assert cancelled.filled_at is None
+
+
+async def test_cancel_order_not_found_raises_trading212_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "DELETE"
+        assert request.url.path == "/api/v0/equity/orders/1"
+        return httpx.Response(404, json={"message": "Order not found"})
+
+    async with make_client(handler) as client:
+        with pytest.raises(Trading212Error) as exc_info:
+            await client.cancel_order(1)
+
+    assert exc_info.value.status_code == 404

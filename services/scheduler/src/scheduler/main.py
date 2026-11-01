@@ -29,11 +29,12 @@ from dotenv import load_dotenv
 from t2d2_algo import AlgoEngine, RunResult, TradeExecutor, load_strategy_configs
 from t2d2_algo.strategies.base import TradeDecision
 from t2d2_client import Trading212Client
-from t2d2_client.models import HistoricalOrder, OrderStatus
+from t2d2_client.models import HistoricalOrder, Order, OrderStatus, OrderType
 from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
 
 from scheduler.telegram import (
     TelegramNotifier,
+    format_cancelled_orders_message,
     format_daily_wrap_message,
     format_no_trades_message,
     format_trade_message,
@@ -119,17 +120,22 @@ def get_tickers_for_session(
     return result
 
 
+INACTIVE_ORDER_STATUSES = {OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.CANCELLING}
+
+
 def start_of_today_utc() -> datetime:
     """Return midnight UTC at the start of the current day."""
     return datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def count_filled_orders_since(orders: list[HistoricalOrder], cutoff: datetime) -> int:
-    """Count fully or partially filled orders created at or after ``cutoff``.
+    """Count fully or partially filled orders filled at or after ``cutoff``.
+
+    Orders with no fill time fall back to their creation time.
 
     Args:
         orders: Order history from Trading212.
-        cutoff: Earliest creation time to include (timezone-aware).
+        cutoff: Earliest time to include (timezone-aware).
 
     Returns:
         Number of matching orders.
@@ -138,8 +144,90 @@ def count_filled_orders_since(orders: list[HistoricalOrder], cutoff: datetime) -
     return sum(
         1
         for o in orders
-        if o.status in filled and o.creation_time is not None and o.creation_time >= cutoff
+        if o.status in filled
+        and (traded_at := o.filled_at or o.creation_time) is not None
+        and traded_at >= cutoff
     )
+
+
+def find_expired_limit_orders(orders: list[Order], cutoff: datetime) -> list[Order]:
+    """Find the bot's own limit buy orders created before ``cutoff``.
+
+    Only orders placed through the API qualify, so orders placed by hand in the
+    Trading212 app are never returned.
+
+    Args:
+        orders: Pending orders from Trading212.
+        cutoff: Orders created before this time have expired (timezone-aware).
+
+    Returns:
+        The expired orders.
+    """
+    return [
+        o
+        for o in orders
+        if o.type == OrderType.LIMIT
+        and o.side == "BUY"
+        and o.initiated_from == "API"
+        and o.status not in INACTIVE_ORDER_STATUSES
+        and o.creation_time is not None
+        and o.creation_time < cutoff
+    ]
+
+
+async def cancel_expired_limit_orders(
+    client: Trading212Client, orders: list[Order], expiry_days: int, dry_run: bool
+) -> list[Order]:
+    """Cancel expired limit orders, logging any failure so the run can continue.
+
+    Args:
+        client: Trading212 API client.
+        orders: Pending orders from Trading212.
+        expiry_days: Age in days at which a limit order expires.
+        dry_run: Log what would be cancelled without cancelling it.
+
+    Returns:
+        The orders cancelled, or that would have been in a dry run.
+    """
+    cutoff = datetime.now(tz=UTC) - timedelta(days=expiry_days)
+    cancelled: list[Order] = []
+    for order in find_expired_limit_orders(orders, cutoff):
+        if order.id is None:
+            log.warning("expired_order_without_id", ticker=order.ticker)
+            continue
+        if dry_run:
+            log.info("expired_order_not_cancelled_dry_run", ticker=order.ticker, order_id=order.id)
+            cancelled.append(order)
+            continue
+        try:
+            await client.cancel_order(order.id)
+            log.info("expired_order_cancelled", ticker=order.ticker, order_id=order.id)
+            cancelled.append(order)
+        except Exception as e:
+            log.warning(
+                "expired_order_cancel_failed",
+                ticker=order.ticker,
+                order_id=order.id,
+                error_type=type(e).__name__,
+            )
+    return cancelled
+
+
+def tickers_with_open_orders(orders: list[Order], t212_to_symbol: dict[str, str]) -> set[str]:
+    """Return the symbols with an open order, however old, so orders don't stack up.
+
+    Args:
+        orders: Pending orders from Trading212.
+        t212_to_symbol: Mapping of Trading212 ticker to symbol for this session.
+
+    Returns:
+        Symbols that shouldn't be bought again yet.
+    """
+    return {
+        t212_to_symbol[o.ticker]
+        for o in orders
+        if o.ticker in t212_to_symbol and o.status not in INACTIVE_ORDER_STATUSES
+    }
 
 
 async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
@@ -224,7 +312,6 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
         cooldown_cutoff = datetime.now(tz=UTC) - timedelta(
             hours=shared_config.ticker_cooldown_hours
         )
-        _skip_statuses = {OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.CANCELLING}
         recently_traded: set[str] = set()
 
         # Check order history (may be unavailable on demo accounts)
@@ -234,23 +321,23 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                 t212_to_symbol[o.ticker]
                 for o in recent_orders
                 if o.ticker in t212_to_symbol
-                and o.creation_time is not None
-                and o.creation_time >= cooldown_cutoff
-                and o.status not in _skip_statuses
+                and (traded_at := o.filled_at or o.creation_time) is not None
+                and traded_at >= cooldown_cutoff
+                and o.status not in INACTIVE_ORDER_STATUSES
             }
         except Exception as e:
             log.warning("order_history_unavailable", error_type=type(e).__name__)
 
-        # Also check pending orders (catches limit orders not yet filled)
+        # Also check pending orders (catches limit orders not yet filled). An order cancelled
+        # here still blocks this run: the cash figure above doesn't include its released funds.
         pending_orders = await client.get_all_orders()
-        recently_traded |= {
-            t212_to_symbol[o.ticker]
-            for o in pending_orders
-            if o.ticker in t212_to_symbol
-            and o.creation_time is not None
-            and o.creation_time >= cooldown_cutoff
-            and o.status not in _skip_statuses
-        }
+        recently_traded |= tickers_with_open_orders(pending_orders, t212_to_symbol)
+        cancelled_orders = await cancel_expired_limit_orders(
+            client, pending_orders, shared_config.limit_order_expiry_days, dry_run
+        )
+        notifier = TelegramNotifier.from_env()
+        if notifier and cancelled_orders:
+            await notifier.send(format_cancelled_orders_message(cancelled_orders, session, dry_run))
 
         if recently_traded:
             log.info(
@@ -310,7 +397,6 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
         # Execute
         executor = TradeExecutor(client=client, dry_run=dry_run)
-        notifier = TelegramNotifier.from_env()
 
         for decision in ranked:
             if not shared_engine.preserves_cash_reserve(decision, available_cash):
