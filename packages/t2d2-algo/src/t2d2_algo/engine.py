@@ -98,6 +98,7 @@ def load_strategy_configs(config_dir: Path) -> dict[str, StrategyConfig]:
             absolute_max_cash_deploy_pct=global_cfg["absolute_max_cash_deploy_pct"],
             min_cash_reserve_gbp=global_cfg["min_cash_reserve_gbp"],
             min_trade_floor_gbp=global_cfg["min_trade_floor_gbp"],
+            limit_order_expiry_days=global_cfg["limit_order_expiry_days"],
             max_trades_per_run=global_cfg["max_trades_per_run"],
             ticker_cooldown_hours=global_cfg["ticker_cooldown_hours"],
             rsi_max_buy=analysis_cfg["rsi_max_buy"],
@@ -298,7 +299,7 @@ class TradeExecutor:
                     ticker=t212_ticker,
                     quantity=decision.quantity,
                     limit_price=decision.limit_price,
-                    time_validity=TimeValidity.DAY,
+                    time_validity=TimeValidity.GTC,
                 )
             else:
                 await self.client.place_market_order(

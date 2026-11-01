@@ -1,5 +1,7 @@
 """Telegram notifications for executed trades, or a note when there are none.
 
+Also lists any expired orders a session cancels.
+
 Enabled when both ``TELEGRAM_BOT_TOKEN`` and ``TELEGRAM_CHAT_ID`` are set.
 A failed notification is logged and never stops the trading run.
 """
@@ -11,6 +13,7 @@ import httpx
 import structlog
 from t2d2_algo.links import instrument_url
 from t2d2_algo.strategies.base import TradeDecision
+from t2d2_client.models import Order
 
 API_BASE_URL = "https://api.telegram.org"
 
@@ -58,6 +61,34 @@ def format_no_trades_message(session: str, dry_run: bool) -> str:
     """
     prefix = "[DRY RUN] " if dry_run else ""
     return f"{prefix}T2-D2: no trades today\nSession: {session}"
+
+
+def format_cancelled_orders_message(orders: list[Order], session: str, dry_run: bool) -> str:
+    """Build the Telegram message listing expired orders cancelled by a session.
+
+    Args:
+        orders: The cancelled orders, or those that would have been in a dry run.
+        session: Session that ran.
+        dry_run: Whether the orders were only reported, not cancelled.
+
+    Returns:
+        Message text with one line per order.
+    """
+    prefix = "[DRY RUN] " if dry_run else ""
+    action = "would cancel" if dry_run else "cancelled"
+    noun = "order" if len(orders) == 1 else "orders"
+    lines = [f"{prefix}T2-D2 {action} {len(orders)} expired {noun}"]
+    for order in orders:
+        line = f"{order.ticker}: {order.quantity} shares"
+        if order.limit_price is not None:
+            line += f" @ limit {order.limit_price:.2f} {order.currency or ''}".rstrip()
+        if order.filled_quantity:
+            line += f" ({order.filled_quantity} filled)"
+        if order.creation_time is not None:
+            line += f", placed {order.creation_time:%Y-%m-%d}"
+        lines.append(line)
+    lines.append(f"Session: {session}")
+    return "\n".join(lines)
 
 
 def format_daily_wrap_message(

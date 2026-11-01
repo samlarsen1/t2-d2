@@ -31,7 +31,7 @@ class OrderStatus(StrEnum):
 
 class TimeValidity(StrEnum):
     # Good 'til cancelled
-    GTC = "GTC"
+    GTC = "GOOD_TILL_CANCEL"
     # Day order
     DAY = "DAY"
 
@@ -119,6 +119,9 @@ class Order(BaseModel):
     id: int | None = None
     ticker: str
     type: OrderType
+    side: str | None = None  # BUY or SELL
+    initiated_from: str | None = Field(None, alias="initiatedFrom")  # e.g. API, WEB, IOS
+    currency: str | None = None  # Quote currency of limit_price
     status: OrderStatus | None = None
     quantity: Decimal | None = None
     filled_quantity: Decimal | None = Field(None, alias="filledQuantity")
@@ -144,6 +147,7 @@ class HistoricalOrder(BaseModel):
     filled_price: Decimal | None = Field(None, alias="filledPrice")
     value: Decimal | None = None
     creation_time: datetime | None = Field(None, alias="createdAt")
+    filled_at: datetime | None = Field(None, alias="filledAt")
     executor: str | None = None
     taxes: list[Any] = Field(default_factory=list)
 
