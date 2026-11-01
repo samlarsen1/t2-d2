@@ -146,7 +146,7 @@ These hooks block the commit on any finding:
 |------|--------|-----------|
 | `bandit` | Insecure Python patterns, medium severity and above (config in `pyproject.toml`) | Python files change |
 | `semgrep` | Semgrep's OWASP Top 10 and Python rulesets, fetched from its registry (needs network) | Any file changes |
-| `pip-audit` | Every package in `uv.lock` against known advisories (needs network) | `uv.lock` or a `pyproject.toml` changes |
+| `pip-audit` | Every package in `uv.lock` against known advisories (needs network) | Every commit |
 
 ```bash
 # Run one scanner on its own
@@ -159,20 +159,23 @@ uv lock --upgrade-package <package>
 uv sync
 ```
 
-`pip-audit` only runs on commits that touch dependencies, so the
-[Dependency Audit](.github/workflows/dependency-audit.yml) workflow also runs it daily on GitHub
-Actions to catch newly published advisories. To trigger it manually:
+`pip-audit` runs on every commit, so a newly published advisory blocks all commits until the package
+is upgraded. The [Dependency Audit](.github/workflows/dependency-audit.yml) workflow also runs it
+daily on GitHub Actions to catch advisories on days with no commits. To trigger it manually:
 
 ```bash
 gh workflow run dependency-audit.yml
 ```
 
 `uv` also ignores package versions published in the last 7 days
-(`exclude-newer` in `pyproject.toml`), so a very recent fix may need a short wait.
+(`exclude-newer` in `pyproject.toml`), so a very recent fix may need a short wait. If the fix is too
+new, or you're offline, commit with `SKIP=pip-audit git commit` and upgrade once you can. Semgrep
+blocks any shorter cooldown (`uv-missing-dependency-cooldown`).
 
 Dependabot checks weekly for newer GitHub Actions versions and opens a pull request for each one
 (config in `.github/dependabot.yml`). It keeps them pinned to commit SHAs and skips versions published
-in the last 7 days. Python packages aren't included, so `uv.lock` updates are still manual.
+in the last 7 days. It doesn't cover Python packages: upgrade those with `uv lock` and rely on
+`pip-audit` to flag vulnerable ones.
 
 ### Running on a Schedule (Raspberry Pi / Linux)
 

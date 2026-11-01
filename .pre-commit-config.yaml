@@ -59,7 +59,7 @@ repos:
           -r "${TMPDIR:-/tmp}/t2d2-requirements.txt"'
         language: system
         pass_filenames: false
-        files: ^(uv\.lock|(.*/)?pyproject\.toml)$
+        always_run: true
 
   - repo: local
     hooks:
