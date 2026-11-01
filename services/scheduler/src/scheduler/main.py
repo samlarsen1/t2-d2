@@ -304,7 +304,8 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
         result.decisions = decisions
 
         # Rank and cap
-        ranked = AlgoEngine(shared_config).rank_decisions(decisions)
+        shared_engine = AlgoEngine(shared_config)
+        ranked = shared_engine.rank_decisions(decisions)
         log.info("ranked_trades", count=len(ranked))
 
         # Execute
@@ -312,6 +313,15 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
         notifier = TelegramNotifier.from_env()
 
         for decision in ranked:
+            if not shared_engine.preserves_cash_reserve(decision, available_cash):
+                log.warning(
+                    "trade_skipped_cash_reserve",
+                    ticker=decision.ticker,
+                    value_gbp=round(decision.trade_value_gbp, 2),
+                    cash_remaining_gbp=available_cash,
+                )
+                continue
+
             success = await executor.execute(decision)
             if success:
                 result.executed_trades.append(decision)

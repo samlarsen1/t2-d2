@@ -97,6 +97,7 @@ def load_strategy_configs(config_dir: Path) -> dict[str, StrategyConfig]:
             min_trade_gbp=mode_cfg["min_trade_gbp"],
             absolute_max_cash_deploy_pct=global_cfg["absolute_max_cash_deploy_pct"],
             min_cash_reserve_gbp=global_cfg["min_cash_reserve_gbp"],
+            min_trade_floor_gbp=global_cfg["min_trade_floor_gbp"],
             max_trades_per_run=global_cfg["max_trades_per_run"],
             ticker_cooldown_hours=global_cfg["ticker_cooldown_hours"],
             rsi_max_buy=analysis_cfg["rsi_max_buy"],
@@ -204,12 +205,16 @@ class AlgoEngine:
             max_from_weight = total_portfolio_value * (cfg.max_portfolio_weight_pct / 100)
             trade_value = min(cash_budget, max_from_weight)
 
+        # Raise small percentage-based sizes to the fixed floor
+        trade_value = max(trade_value, cfg.min_trade_floor_gbp)
+
         # Ensure we don't exceed available cash (less reserve)
         trade_value = min(trade_value, available_cash - cfg.min_cash_reserve_gbp)
 
         # Minimum trade size check
-        if trade_value < cfg.min_trade_gbp:
-            return skip(f"Trade size £{trade_value:.2f} below minimum £{cfg.min_trade_gbp:.2f}")
+        min_trade = max(cfg.min_trade_gbp, cfg.min_trade_floor_gbp)
+        if trade_value < min_trade:
+            return skip(f"Trade size £{trade_value:.2f} below minimum £{min_trade:.2f}")
 
         if fx_rate is None:
             return skip(f"No FX rate for quote currency {signal.currency or 'unknown'}")
@@ -261,6 +266,15 @@ class AlgoEngine:
             key=lambda d: (d.daily_change_pct * 0.4) + (d.weekly_change_pct * 0.6)
         )
         return tradeable[: self.config.max_trades_per_run]
+
+    def preserves_cash_reserve(self, decision: TradeDecision, available_cash: float) -> bool:
+        """
+        Check a decision against the cash left after earlier trades in the same run.
+
+        Decisions are sized independently against the cash at the start of the run, so
+        together they can use more than each one allows for on its own.
+        """
+        return available_cash - decision.trade_value_gbp >= self.config.min_cash_reserve_gbp
 
 
 class TradeExecutor:
