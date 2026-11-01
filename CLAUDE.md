@@ -19,5 +19,5 @@ Sessions: `eu_morning`, `eu_afternoon`, `us_morning`, `us_afternoon`, `daily_clo
 - **Never commit secrets.** Secrets live in `.env` (gitignored); document vars in `.env.example` with placeholders. Don't log exception messages that may contain sensitive data.
 - Style: ruff (line length 100), full type hints passing `mypy --strict`, Google-style docstrings on public APIs, structured logging, specific exceptions — never swallow silently.
 - Tests: add for every feature/fix, colocated under each package's `tests/`. Mock all external APIs with realistic payloads, including error cases (timeouts, 5xx, rate limits).
-- Git: atomic commits, clear messages, no force-push to shared branches. Commit only on `feature/<name>`, `bug/<name>` or `task/<name>` branches (lowercase-with-hyphens); never directly on `main`.
+- Git: atomic commits, clear messages, no force-push to shared branches. Commit only on `feature/<name>`, `bug/<name>`, `task/<name>` or `hotfix/<name>` branches (lowercase-with-hyphens); never directly on `main`.
 - Keep changes scoped — no unrelated refactors alongside fixes.

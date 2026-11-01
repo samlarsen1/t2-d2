@@ -110,6 +110,8 @@ Commit on a branch named after the type of change, in lowercase with hyphens:
 | `feature/<name>` | New behaviour |
 | `bug/<name>` | Fixes |
 | `task/<name>` | Everything else: config, docs, dependencies, CI |
+| `hotfix/<name>` | Urgent fixes |
+| `dependabot/...` | Created by Dependabot, so `<name>` doesn't need to be lowercase-with-hyphens |
 
 ```bash
 git switch -c feature/min-trade-floor
@@ -117,6 +119,24 @@ git switch -c feature/min-trade-floor
 
 The `branch-name` hook rejects commits on any other branch, including `main`. If you installed the
 hooks before this check was added, run `pre-commit install` again to enable it.
+
+GitHub enforces the same convention with these rulesets:
+
+| Ruleset | Applies to | Rules |
+|---------|------------|-------|
+| `main` | `main` | Requires a pull request and the `Branch name` check, so only branches following the patterns above can merge. Also requires CodeQL results, blocks deletion and force-pushes, and requests a Copilot review |
+| `branches` | `feature/**`, `bug/**`, `task/**`, `hotfix/**` | Blocks force-pushes; deletion is allowed. `dependabot/**` is left out because Dependabot force-pushes when it rebases its branches |
+| `branch-naming` | Everything else | Blocks creating the branch |
+
+Branches are deleted from GitHub automatically after merging. `branch-naming` only checks the
+prefix, so a name like `task/Bad_Name` can be pushed, but the `Branch name` check stops it merging.
+It also excludes `dependabot/**/*` as well as `dependabot/**`, because a trailing `**` doesn't match
+further slashes and Dependabot's names have them (`dependabot/pip/foo-1.2.3`).
+
+```bash
+# Show which rules apply to a branch name
+gh api repos/samlarsen1/t2-d2/rules/branches/task/my-change --jq '.[].type'
+```
 
 #### Vulnerability scanning
 

@@ -9,9 +9,9 @@ repos:
         name: branch name
         entry: >-
           bash -c 'branch=$(git symbolic-ref --short -q HEAD) || exit 0;
-          [[ "$branch" =~ ^(feature|bug|task)/[a-z0-9]+(-[a-z0-9]+)*$ ]] && exit 0;
-          echo "Branch \"$branch\" must be feature/<name>, bug/<name> or task/<name>,
-          where <name> is lowercase-with-hyphens. Commit on a new branch instead:
+          [[ "$branch" =~ ^((feature|bug|task|hotfix)/[a-z0-9]+(-[a-z0-9]+)*|dependabot/.+)$ ]] && exit 0;
+          echo "Branch \"$branch\" must be feature/<name>, bug/<name>, task/<name> or hotfix/<name>,
+          where <name> is lowercase-with-hyphens, or a dependabot/ branch. Commit on a new branch instead:
           git switch -c task/my-change"; exit 1'
         language: system
         pass_filenames: false
