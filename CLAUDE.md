@@ -6,7 +6,7 @@ uv workspace (Python 3.12): `packages/` (t2d2-client, market-data, algo) + `serv
 
 ```bash
 .venv/bin/pytest                         # tests (packages/, services/)
-.venv/bin/pre-commit run --all-files     # detect-secrets, ruff, mypy --strict, pytest
+.venv/bin/pre-commit run --all-files     # detect-secrets, ruff, bandit, semgrep, pip-audit, mypy --strict, pytest
 uv sync                                  # install/update deps (uv.lock)
 .venv/bin/python services/scheduler/src/scheduler/main.py --session <session>
 ```

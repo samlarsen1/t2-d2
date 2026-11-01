@@ -1,0 +1,32 @@
+name: Dependency Audit
+
+on:
+  schedule:
+    - cron: "17 6 * * *" # daily at 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pip-audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4.2.0
+
+      - name: Install dependencies
+        run: uv sync --all-packages --frozen
+
+      - name: Audit locked dependencies
+        run: |
+          uv export --frozen --all-packages --no-emit-workspace --no-hashes \
+            --format requirements-txt -o "$RUNNER_TEMP/requirements.txt" >/dev/null
+          uv run --frozen --no-sync pip-audit --strict --disable-pip --no-deps \
+            -r "$RUNNER_TEMP/requirements.txt"

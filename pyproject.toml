@@ -7,10 +7,13 @@ members = [
 ]
 
 [tool.uv]
+# Supply-chain cooldown: ignore package versions published in the last 7 days
+exclude-newer = "7 days"
 dev-dependencies = [
     "mypy>=1.10",
     "pre-commit>=3.7",
     "ruff>=0.4",
+    "pip-audit>=2.9",
     "pytest>=8",
     "pytest-asyncio>=0.23",
     "types-PyYAML>=6.0",
@@ -22,6 +25,12 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.bandit]
+exclude_dirs = [".venv"]
+
+[tool.bandit.assert_used]
+skips = ["*/tests/*", "*/test_*.py"]
 
 [tool.mypy]
 python_version = "3.12"

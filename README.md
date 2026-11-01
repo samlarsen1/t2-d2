@@ -95,10 +95,42 @@ decides (default `true`).
 uv sync
 pre-commit install
 
-# Hooks run automatically on commit: ruff, mypy, pytest
+# Hooks run automatically on commit: detect-secrets, ruff, bandit, semgrep, pip-audit, mypy, pytest
 # To run manually against all files:
 pre-commit run --all-files
 ```
+
+#### Vulnerability scanning
+
+These hooks block the commit on any finding:
+
+| Hook | Checks | Runs when |
+|------|--------|-----------|
+| `bandit` | Insecure Python patterns, medium severity and above (config in `pyproject.toml`) | Python files change |
+| `semgrep` | Semgrep's OWASP Top 10 and Python rulesets, fetched from its registry (needs network) | Any file changes |
+| `pip-audit` | Every package in `uv.lock` against known advisories (needs network) | `uv.lock` or a `pyproject.toml` changes |
+
+```bash
+# Run one scanner on its own
+pre-commit run bandit --all-files
+pre-commit run semgrep --all-files
+pre-commit run pip-audit --all-files
+
+# Fix a vulnerable dependency, then re-run pip-audit
+uv lock --upgrade-package <package>
+uv sync
+```
+
+`pip-audit` only runs on commits that touch dependencies, so the
+[Dependency Audit](.github/workflows/dependency-audit.yml) workflow also runs it daily on GitHub
+Actions to catch newly published advisories. To trigger it manually:
+
+```bash
+gh workflow run dependency-audit.yml
+```
+
+`uv` also ignores package versions published in the last 7 days
+(`exclude-newer` in `pyproject.toml`), so a very recent fix may need a short wait.
 
 ### Running on a Schedule (Raspberry Pi / Linux)
 
