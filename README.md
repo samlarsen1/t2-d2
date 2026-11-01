@@ -95,10 +95,28 @@ decides (default `true`).
 uv sync
 pre-commit install
 
-# Hooks run automatically on commit: detect-secrets, ruff, bandit, semgrep, pip-audit, mypy, pytest
+# Hooks run automatically on commit: detect-secrets, ruff, bandit, semgrep, pip-audit, mypy, pytest,
+# plus a branch name check (see Branch naming below)
 # To run manually against all files:
 pre-commit run --all-files
 ```
+
+#### Branch naming
+
+Commit on a branch named after the type of change, in lowercase with hyphens:
+
+| Pattern | Use for |
+|---------|---------|
+| `feature/<name>` | New behaviour |
+| `bug/<name>` | Fixes |
+| `task/<name>` | Everything else: config, docs, dependencies, CI |
+
+```bash
+git switch -c feature/min-trade-floor
+```
+
+The `branch-name` hook rejects commits on any other branch, including `main`. If you installed the
+hooks before this check was added, run `pre-commit install` again to enable it.
 
 #### Vulnerability scanning
 
