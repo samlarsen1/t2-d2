@@ -27,7 +27,7 @@ import structlog
 import yaml
 from dotenv import load_dotenv
 from t2d2_algo import AlgoEngine, RunResult, TradeExecutor, load_strategy_configs
-from t2d2_algo.strategies.base import TradeDecision
+from t2d2_algo.strategies.base import StrategyConfig, TradeDecision
 from t2d2_client import Trading212Client
 from t2d2_client.models import HistoricalOrder, Order, OrderStatus, OrderType
 from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
@@ -118,6 +118,63 @@ def get_tickers_for_session(
             t212_ticker = ticker_entry.get("t212_ticker", symbol)
             result.append((symbol, t212_ticker, market, ticker_entry["strategy"]))
     return result
+
+
+def validate_strategy_sessions(
+    strategy_configs: dict[str, StrategyConfig], sessions: set[str]
+) -> None:
+    """Check every strategy's ``trade_sessions`` names a session in schedules.yaml.
+
+    Args:
+        strategy_configs: Strategy modes from strategy.yaml.
+        sessions: Session names defined in schedules.yaml.
+
+    Raises:
+        ValueError: If any strategy names an unknown session.
+    """
+    problems = [
+        f"{mode}: unknown session {name!r}"
+        for mode, cfg in strategy_configs.items()
+        for name in cfg.trade_sessions or []
+        if name not in sessions
+    ]
+    if problems:
+        raise ValueError("Invalid strategy.yaml trade_sessions: " + "; ".join(problems))
+
+
+def active_tickers(
+    tickers: list[tuple[str, str, str, str]],
+    strategy_configs: dict[str, StrategyConfig],
+    session: str,
+    today: date,
+) -> list[tuple[str, str, str, str]]:
+    """Drop tickers whose strategy doesn't run in this session on this day.
+
+    Args:
+        tickers: ``[(symbol, t212_ticker, market, strategy)]`` for the session.
+        strategy_configs: Strategy modes from strategy.yaml.
+        session: Session being run.
+        today: Date of the run.
+
+    Returns:
+        The tickers to evaluate, in their original order.
+    """
+    return [t for t in tickers if strategy_configs[t[3]].is_active(session, today)]
+
+
+def history_days(config: StrategyConfig, buffer_days: int = 5) -> int:
+    """Return how many days of prices to fetch for a strategy's tickers.
+
+    Long-term modes need a full year of trading days; converting to calendar days
+    leaves enough rows after weekends and holidays.
+
+    Args:
+        config: The ticker's strategy.
+        buffer_days: Extra days on top of the longest lookback.
+    """
+    if config.needs_long_history:
+        return int(config.year_lookback_days) * 365 // 252 + buffer_days
+    return int(max(config.daily_lookback_days, config.weekly_lookback_days)) + buffer_days
 
 
 INACTIVE_ORDER_STATUSES = {OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.CANCELLING}
@@ -254,6 +311,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     strategy_configs = load_strategy_configs(CONFIG_DIR)
     stocks_cfg = load_stocks_config()
     validate_stock_strategies(stocks_cfg, set(strategy_configs))
+    validate_strategy_sessions(strategy_configs, set(schedules["sessions"]))
     engines = {mode: AlgoEngine(cfg) for mode, cfg in strategy_configs.items()}
     # Global limits and analysis settings are the same in every mode's config
     shared_config = next(iter(strategy_configs.values()))
@@ -297,15 +355,17 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                 )
             return result
 
-        # Fetch market data for session tickers
-        tickers = get_tickers_for_session(stocks_cfg, markets)
+        # Fetch market data for the session's tickers whose strategy runs today
+        all_tickers = get_tickers_for_session(stocks_cfg, markets)
+        tickers = active_tickers(all_tickers, strategy_configs, session, date.today())
+        if len(tickers) < len(all_tickers):
+            log.info(
+                "tickers_inactive_today",
+                tickers=sorted({t[0] for t in all_tickers} - {t[0] for t in tickers}),
+            )
         log.info("fetching_market_data", ticker_count=len(tickers), session=session)
 
         provider = YahooFinanceProvider()
-        period_days = max(
-            shared_config.daily_lookback_days,
-            shared_config.weekly_lookback_days,
-        ) + 5  # buffer
 
         # Build cooldown set from recent order history + pending orders
         t212_to_symbol = {t212: sym for sym, t212, _, _ in tickers}
@@ -346,10 +406,21 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                 hours=shared_config.ticker_cooldown_hours,
             )
 
-        yahoo_tickers = [(symbol, market) for symbol, _t212, market, _strategy in tickers]
-        ohlcv_data = await provider.fetch_multiple(yahoo_tickers, period_days=period_days)
-        analyser = TrendAnalyser()
-        signals = analyser.analyse_many(ohlcv_data)
+        # Long-term strategies need a year of prices; fetch each history length separately
+        # so the short-term signals of other tickers stay unchanged
+        by_period: dict[int, list[tuple[str, str]]] = {}
+        for symbol, _t212, market, strategy in tickers:
+            period = history_days(strategy_configs[strategy])
+            by_period.setdefault(period, []).append((symbol, market))
+        analyser = TrendAnalyser(
+            quarter_days=shared_config.quarter_lookback_days,
+            half_year_days=shared_config.half_year_lookback_days,
+            year_days=shared_config.year_lookback_days,
+        )
+        signals = {}
+        for period, yahoo_tickers in by_period.items():
+            ohlcv_data = await provider.fetch_multiple(yahoo_tickers, period_days=period)
+            signals.update(analyser.analyse_many(ohlcv_data))
         quote_currencies = {sig.currency for sig in signals.values() if sig.currency}
         fx_rates = await provider.fetch_fx_rates_async(quote_currencies, summary.currency)
         log.info("fx_rates", account_currency=summary.currency, **fx_rates)

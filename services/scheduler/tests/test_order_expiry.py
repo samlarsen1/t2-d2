@@ -1,7 +1,7 @@
 """Tests for expiring old limit orders and blocking tickers with open orders."""
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace, TracebackType
 from typing import Any
@@ -216,7 +216,13 @@ def notifier(monkeypatch: pytest.MonkeyPatch) -> FakeNotifier:
     monkeypatch.setattr(
         main,
         "load_schedules_config",
-        lambda: {"sessions": {"eu_morning": {"markets": ["UK"], "enabled": True}}},
+        lambda: {
+            "sessions": {
+                "eu_morning": {"markets": ["uk"], "enabled": True},
+                # strategy.yaml trade_sessions must name sessions that exist
+                "us_morning": {"markets": ["us"], "enabled": True},
+            }
+        },
     )
     return fake
 
@@ -255,3 +261,55 @@ async def test_cycle_sends_no_cancellation_message_when_nothing_expired(
     await main.run_trading_cycle("eu_morning", dry_run=False)
 
     assert not any("cancel" in message for message in notifier.messages)
+
+
+class _FixedDate(date):
+    today_value = date(2026, 11, 18)  # Wednesday
+
+    @classmethod
+    def today(cls) -> date:  # type: ignore[override]
+        return cls.today_value
+
+
+@pytest.mark.parametrize(
+    ("today", "expected_fetches"),
+    [
+        (date(2026, 11, 18), {35: [("RIO", "uk")], 370: [("NU", "uk")]}),  # Wednesday
+        (date(2026, 11, 19), {35: [("RIO", "uk")]}),  # Thursday: weekly ticker skipped
+    ],
+)
+async def test_cycle_fetches_weekly_tickers_with_long_history_on_their_day(
+    notifier: FakeNotifier,
+    monkeypatch: pytest.MonkeyPatch,
+    today: date,
+    expected_fetches: dict[int, list[tuple[str, str]]],
+) -> None:
+    fetches: dict[int, list[tuple[str, str]]] = {}
+
+    async def record_fetch(
+        self: FakeProvider, tickers: list[tuple[str, str]], period_days: int
+    ) -> dict[str, Any]:
+        fetches[period_days] = tickers
+        return {}
+
+    monkeypatch.setattr(FakeProvider, "fetch_multiple", record_fetch)
+    monkeypatch.setattr(_FixedDate, "today_value", today)
+    monkeypatch.setattr(main, "date", _FixedDate)
+    monkeypatch.setattr(
+        main,
+        "load_stocks_config",
+        lambda: {
+            "markets": {
+                "uk": {
+                    "tickers": [
+                        {"symbol": "RIO", "t212_ticker": "RIOl_EQ", "strategy": "mild"},
+                        {"symbol": "NU", "t212_ticker": "NU_US_EQ", "strategy": "deep_value"},
+                    ]
+                }
+            }
+        },
+    )
+
+    await main.run_trading_cycle("eu_morning", dry_run=True)
+
+    assert fetches == expected_fetches

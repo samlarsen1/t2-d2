@@ -17,7 +17,12 @@ from t2d2_client.models import TimeValidity
 from t2d2_market_data.analysis import TrendSignal
 
 from .links import instrument_url
-from .strategies.base import StrategyConfig, TradeDecision
+from .strategies.base import (
+    TRIGGER_DAILY_DIP,
+    TRIGGER_LONG_TERM_DOWNTREND,
+    StrategyConfig,
+    TradeDecision,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +92,7 @@ def load_strategy_configs(config_dir: Path) -> dict[str, StrategyConfig]:
     return {
         mode: StrategyConfig(
             mode=mode,
-            min_daily_dip_pct=mode_cfg["min_daily_dip_pct"],
+            min_daily_dip_pct=mode_cfg.get("min_daily_dip_pct"),
             min_weekly_dip_pct=mode_cfg.get("min_weekly_dip_pct"),
             max_position_increase_pct=mode_cfg["max_position_increase_pct"],
             max_cash_deploy_pct=mode_cfg["max_cash_deploy_pct"],
@@ -105,9 +110,23 @@ def load_strategy_configs(config_dir: Path) -> dict[str, StrategyConfig]:
             daily_lookback_days=analysis_cfg["daily_lookback_days"],
             weekly_lookback_days=analysis_cfg["weekly_lookback_days"],
             require_both_timeframes=mode_cfg.get("require_both_timeframes", False),
+            trigger=mode_cfg.get("trigger", TRIGGER_DAILY_DIP),
+            max_pct_above_52w_low=mode_cfg.get("max_pct_above_52w_low"),
+            min_quarter_change_pct=mode_cfg.get("min_quarter_change_pct"),
+            min_half_year_change_pct=mode_cfg.get("min_half_year_change_pct"),
+            trade_weekday=mode_cfg.get("trade_weekday"),
+            trade_sessions=mode_cfg.get("trade_sessions"),
+            quarter_lookback_days=analysis_cfg.get("quarter_lookback_days", 63),
+            half_year_lookback_days=analysis_cfg.get("half_year_lookback_days", 126),
+            year_lookback_days=analysis_cfg.get("year_lookback_days", 252),
         )
         for mode, mode_cfg in raw["modes"].items()
     }
+
+
+def _dip_blend(daily_change_pct: float, weekly_change_pct: float) -> float:
+    """Weighted daily/weekly move used to rank dip buys (most negative = strongest)."""
+    return daily_change_pct * 0.4 + weekly_change_pct * 0.6
 
 
 class AlgoEngine:
@@ -141,7 +160,6 @@ class AlgoEngine:
         cfg = self.config
         ticker = signal.ticker
 
-        min_daily = cfg.min_daily_dip_pct
         max_cash_pct = cfg.max_cash_deploy_pct / 100
 
         def skip(reason: str) -> TradeDecision:
@@ -163,22 +181,16 @@ class AlgoEngine:
         if recently_traded and ticker in recently_traded:
             return skip(f"Cooldown: traded within last {cfg.ticker_cooldown_hours}h")
 
-        # 1. Daily dip threshold
-        if signal.daily_change_pct > min_daily:
-            return skip(
-                f"Daily change {signal.daily_change_pct:+.2f}% above threshold {min_daily:+.2f}%"
-            )
-
-        # 2. Weekly dip threshold (only for modes with require_both_timeframes)
-        if (
-            cfg.require_both_timeframes
-            and cfg.min_weekly_dip_pct is not None
-            and signal.weekly_change_pct > cfg.min_weekly_dip_pct
-        ):
-            return skip(
-                f"Weekly change {signal.weekly_change_pct:+.2f}% "
-                f"above threshold {cfg.min_weekly_dip_pct:+.2f}%"
-            )
+        # 1–2. Trend trigger: daily/weekly dip, or a long-term slide
+        if cfg.trigger == TRIGGER_LONG_TERM_DOWNTREND:
+            trigger = self._long_term_trigger(signal)
+            if trigger is None:
+                return skip(self._long_term_miss(signal))
+        else:
+            dip_miss = self._daily_dip_miss(signal)
+            if dip_miss is not None:
+                return skip(dip_miss)
+            trigger = None
 
         # 3. RSI gate — don't buy if momentum isn't oversold yet
         if signal.rsi > cfg.rsi_max_buy:
@@ -236,7 +248,8 @@ class AlgoEngine:
             return skip(f"Trade size £{trade_value:.2f} buys less than one share fraction")
 
         reason = (
-            f"Daily: {signal.daily_change_pct:+.2f}%, "
+            (f"{trigger}, " if trigger else "")
+            + f"Daily: {signal.daily_change_pct:+.2f}%, "
             f"Weekly: {signal.weekly_change_pct:+.2f}%, "
             f"RSI: {signal.rsi:.1f}"
         )
@@ -254,17 +267,100 @@ class AlgoEngine:
             strategy=cfg.mode,
             quantity=quantity,
             currency=signal.currency,
+            downtrend_score=self._downtrend_score(signal),
+        )
+
+    def _downtrend_score(self, signal: TrendSignal) -> float:
+        """Score how far ``signal`` has fallen, for ranking buys; more negative ranks first.
+
+        Dip modes use the daily/weekly blend. Long-term modes use the deepest of that blend
+        and the quarter and half-year falls, so a stock in a long slide isn't pushed down
+        the ranking because it happens to be up on the day.
+        """
+        score = _dip_blend(signal.daily_change_pct, signal.weekly_change_pct)
+        if self.config.trigger == TRIGGER_LONG_TERM_DOWNTREND:
+            longer = [
+                c
+                for c in (signal.quarter_change_pct, signal.half_year_change_pct)
+                if c is not None
+            ]
+            score = min([score, *longer])
+        return score
+
+    def _daily_dip_miss(self, signal: TrendSignal) -> str | None:
+        """Return why the daily/weekly dip gates reject ``signal``, or None if it passes."""
+        cfg = self.config
+        min_daily = cfg.min_daily_dip_pct
+        if min_daily is not None and signal.daily_change_pct > min_daily:
+            return f"Daily change {signal.daily_change_pct:+.2f}% above threshold {min_daily:+.2f}%"
+        if (
+            cfg.require_both_timeframes
+            and cfg.min_weekly_dip_pct is not None
+            and signal.weekly_change_pct > cfg.min_weekly_dip_pct
+        ):
+            return (
+                f"Weekly change {signal.weekly_change_pct:+.2f}% "
+                f"above threshold {cfg.min_weekly_dip_pct:+.2f}%"
+            )
+        return None
+
+    def _long_term_trigger(self, signal: TrendSignal) -> str | None:
+        """Describe the long-term downtrend ``signal`` is in, or None if it isn't in one.
+
+        A quarter or half-year fall only counts while the price is still below its 50-day
+        SMA, so a stock that has already rebounded isn't bought on an old slide.
+        """
+        cfg = self.config
+        if (
+            cfg.max_pct_above_52w_low is not None
+            and signal.pct_above_52w_low is not None
+            and signal.pct_above_52w_low <= cfg.max_pct_above_52w_low
+        ):
+            return f"Near 52w low ({signal.pct_above_52w_low:+.2f}% above)"
+        if not signal.is_below_sma50:
+            return None
+        if (
+            cfg.min_half_year_change_pct is not None
+            and signal.half_year_change_pct is not None
+            and signal.half_year_change_pct <= cfg.min_half_year_change_pct
+        ):
+            return f"Half-year downtrend ({signal.half_year_change_pct:+.2f}%)"
+        if (
+            cfg.min_quarter_change_pct is not None
+            and signal.quarter_change_pct is not None
+            and signal.quarter_change_pct <= cfg.min_quarter_change_pct
+        ):
+            return f"Quarter downtrend ({signal.quarter_change_pct:+.2f}%)"
+        return None
+
+    @staticmethod
+    def _long_term_miss(signal: TrendSignal) -> str:
+        """Summarise the long-term signals for a ticker that isn't in a downtrend."""
+
+        def pct(value: float | None) -> str:
+            return "n/a" if value is None else f"{value:+.2f}%"
+
+        return (
+            f"No long-term downtrend: {pct(signal.pct_above_52w_low)} above 52w low, "
+            f"quarter {pct(signal.quarter_change_pct)}, "
+            f"half-year {pct(signal.half_year_change_pct)}, "
+            f"{'below' if signal.is_below_sma50 else 'above'} SMA50"
         )
 
     def rank_decisions(self, decisions: list[TradeDecision]) -> list[TradeDecision]:
         """
-        Rank trade decisions by downtrend strength — biggest dip first.
-        Only returns decisions where should_trade is True.
+        Rank trade decisions by downtrend strength — biggest fall first.
+        Only returns decisions where should_trade is True. Long-term modes rank on their
+        quarter/half-year fall too (see ``_downtrend_score``).
         """
         tradeable = [d for d in decisions if d.should_trade]
-        # Sort by combined daily+weekly move (most negative first)
+        # Most negative first; decisions without a score use the daily/weekly blend
         tradeable.sort(
-            key=lambda d: (d.daily_change_pct * 0.4) + (d.weekly_change_pct * 0.6)
+            key=lambda d: (
+                d.downtrend_score
+                if d.downtrend_score is not None
+                else _dip_blend(d.daily_change_pct, d.weekly_change_pct)
+            )
         )
         return tradeable[: self.config.max_trades_per_run]
 

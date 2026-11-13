@@ -1,6 +1,7 @@
 """Smoke tests for AlgoEngine decision logic."""
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -168,12 +169,24 @@ def test_decision_records_strategy_mode() -> None:
 def test_load_strategy_configs_returns_every_mode() -> None:
     configs = load_strategy_configs(REPO_ROOT / "config")
 
-    assert set(configs) == {"mild", "moderate", "aggressive"}
+    assert set(configs) == {"deep_value", "mild", "moderate", "aggressive"}
     for mode, cfg in configs.items():
         assert cfg.mode == mode
     assert configs["mild"].min_daily_dip_pct != configs["aggressive"].min_daily_dip_pct
     # Global limits are shared across modes
     assert len({cfg.max_trades_per_run for cfg in configs.values()}) == 1
+
+
+def test_deep_value_config_is_weekly_and_below_mild() -> None:
+    configs = load_strategy_configs(REPO_ROOT / "config")
+    deep, mild = configs["deep_value"], configs["mild"]
+
+    assert deep.trigger == "long_term_downtrend"
+    assert deep.trade_weekday == "wednesday"
+    assert deep.needs_long_history and not mild.needs_long_history
+    assert deep.max_cash_deploy_pct < mild.max_cash_deploy_pct
+    assert deep.max_position_increase_pct < mild.max_position_increase_pct
+    assert deep.max_portfolio_weight_pct < mild.max_portfolio_weight_pct
 
 
 class _FakeClient:
@@ -399,3 +412,182 @@ def test_preserves_cash_reserve_accounts_for_earlier_trades() -> None:
     )
     assert engine.preserves_cash_reserve(decision, available_cash=200.0)
     assert not engine.preserves_cash_reserve(decision, available_cash=199.99)
+
+
+# --- long_term_downtrend trigger ---
+
+
+def make_long_term_config(**overrides: object) -> StrategyConfig:
+    defaults: dict[str, object] = dict(
+        mode="deep_value",
+        trigger="long_term_downtrend",
+        min_daily_dip_pct=None,
+        max_pct_above_52w_low=2.0,
+        min_quarter_change_pct=-20.0,
+        min_half_year_change_pct=-30.0,
+    )
+    defaults.update(overrides)
+    return make_config(**defaults)
+
+
+def make_long_term_signal(
+    pct_above_52w_low: float | None = 15.0,
+    quarter_change_pct: float | None = -5.0,
+    half_year_change_pct: float | None = -8.0,
+    is_below_sma50: bool = True,
+    daily_change_pct: float = 1.5,
+) -> TrendSignal:
+    signal = make_signal(daily_change_pct=daily_change_pct, weekly_change_pct=0.5)
+    signal.pct_above_52w_low = pct_above_52w_low
+    signal.quarter_change_pct = quarter_change_pct
+    signal.half_year_change_pct = half_year_change_pct
+    signal.is_below_sma50 = is_below_sma50
+    return signal
+
+
+def evaluate_long_term(signal: TrendSignal, **config: object) -> TradeDecision:
+    return AlgoEngine(make_long_term_config(**config)).evaluate(
+        signal=signal,
+        position=None,
+        available_cash=1000.0,
+        total_portfolio_value=5000.0,
+        fx_rate=1.0,
+    )
+
+
+def test_long_term_buys_near_52w_low_despite_daily_gain() -> None:
+    decision = evaluate_long_term(make_long_term_signal(pct_above_52w_low=1.0))
+
+    assert decision.should_trade
+    assert decision.reason.startswith("Near 52w low")
+
+
+@pytest.mark.parametrize(
+    ("quarter", "half_year", "expected"),
+    [(-25.0, -8.0, "Quarter downtrend"), (-5.0, -35.0, "Half-year downtrend")],
+)
+def test_long_term_buys_on_sustained_slide(quarter: float, half_year: float, expected: str) -> None:
+    decision = evaluate_long_term(
+        make_long_term_signal(quarter_change_pct=quarter, half_year_change_pct=half_year)
+    )
+
+    assert decision.should_trade
+    assert decision.reason.startswith(expected)
+
+
+def test_long_term_ignores_sharp_daily_drop() -> None:
+    # A big one-day fall alone isn't a long-term downtrend
+    decision = evaluate_long_term(make_long_term_signal(daily_change_pct=-9.0))
+
+    assert not decision.should_trade
+    assert decision.reason.startswith("No long-term downtrend")
+
+
+def test_long_term_slide_ignored_once_price_back_above_sma50() -> None:
+    decision = evaluate_long_term(
+        make_long_term_signal(quarter_change_pct=-25.0, is_below_sma50=False)
+    )
+
+    assert not decision.should_trade
+    assert "above SMA50" in decision.reason
+
+
+def test_long_term_skips_without_enough_history() -> None:
+    signal = make_long_term_signal(
+        pct_above_52w_low=None, quarter_change_pct=None, half_year_change_pct=None
+    )
+
+    decision = evaluate_long_term(signal)
+
+    assert not decision.should_trade
+    assert "n/a above 52w low" in decision.reason
+
+
+def test_long_term_threshold_can_be_disabled() -> None:
+    decision = evaluate_long_term(
+        make_long_term_signal(pct_above_52w_low=1.0), max_pct_above_52w_low=None
+    )
+
+    assert not decision.should_trade
+
+
+def test_long_term_still_applies_rsi_gate() -> None:
+    signal = make_long_term_signal(pct_above_52w_low=1.0)
+    signal.rsi = 70.0
+
+    decision = evaluate_long_term(signal)
+
+    assert not decision.should_trade
+    assert decision.reason.startswith("RSI")
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"trigger": "sometimes"}, "unknown trigger"),
+        ({"trigger": "daily_dip", "min_daily_dip_pct": None}, "needs min_daily_dip_pct"),
+        (
+            {
+                "max_pct_above_52w_low": None,
+                "min_quarter_change_pct": None,
+                "min_half_year_change_pct": None,
+            },
+            "needs at least one",
+        ),
+        ({"trade_weekday": "wed"}, "trade_weekday"),
+    ],
+)
+def test_invalid_long_term_config_rejected(overrides: dict[str, object], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        make_long_term_config(**overrides)
+
+
+@pytest.mark.parametrize(
+    ("session", "day", "active"),
+    [
+        ("us_morning", date(2026, 11, 18), True),  # Wednesday
+        ("us_afternoon", date(2026, 11, 18), False),  # Wrong session
+        ("us_morning", date(2026, 11, 17), False),  # Tuesday
+    ],
+)
+def test_is_active_respects_weekday_and_sessions(session: str, day: date, active: bool) -> None:
+    cfg = make_long_term_config(trade_weekday="wednesday", trade_sessions=["us_morning"])
+
+    assert cfg.is_active(session, day) is active
+
+
+def test_unrestricted_mode_is_always_active() -> None:
+    assert make_config().is_active("eu_afternoon", date(2026, 11, 17))
+
+
+def test_long_term_buy_outranks_daily_dip_despite_daily_gain() -> None:
+    # A quarter-long slide should win a scarce slot even though the stock rose today
+    dip_engine = AlgoEngine(make_config(max_trades_per_run=1))
+    dip = dip_engine.evaluate(
+        make_signal("DIP", daily_change_pct=-5.0, weekly_change_pct=-10.0),
+        position=None,
+        available_cash=1000.0,
+        total_portfolio_value=5000.0,
+        fx_rate=1.0,
+    )
+    slide = evaluate_long_term(make_long_term_signal(quarter_change_pct=-25.0))
+    assert dip.should_trade and slide.should_trade
+
+    ranked = dip_engine.rank_decisions([dip, slide])
+
+    assert [d.strategy for d in ranked] == ["deep_value"]
+    assert slide.downtrend_score == -25.0
+
+
+def test_long_term_score_uses_dip_blend_when_shallower_than_long_moves() -> None:
+    signal = make_long_term_signal(
+        pct_above_52w_low=1.0,
+        quarter_change_pct=None,
+        half_year_change_pct=None,
+        daily_change_pct=-4.0,
+    )
+    signal.weekly_change_pct = -6.0
+
+    decision = evaluate_long_term(signal)
+
+    assert decision.downtrend_score == pytest.approx(-4.0 * 0.4 + -6.0 * 0.6)
