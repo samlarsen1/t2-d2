@@ -28,6 +28,11 @@ class TrendSignal:
     is_below_sma50: bool
     volume_ratio: float         # Today's volume vs 20-day average
     currency: str | None = None  # Quote currency of the prices, e.g. "GBp", "USD"
+    # Long-term signals; None when the price history is too short to compute them
+    quarter_change_pct: float | None = None    # ~63 trading days
+    half_year_change_pct: float | None = None  # ~126 trading days
+    low_52w: float | None = None               # Lowest close over ~252 trading days
+    pct_above_52w_low: float | None = None     # How far the latest close sits above low_52w
 
     @property
     def is_downtrend(self) -> bool:
@@ -71,8 +76,33 @@ def _sma(series: pd.Series, period: int) -> float:
     return float(series.tail(period).mean())
 
 
+def _change_over(closes: pd.Series, days: int) -> float | None:
+    """% change over the last ``days`` trading days, or None without enough history."""
+    if len(closes) < days + 1:
+        return None
+    start = float(closes.iloc[-(days + 1)])
+    if start == 0:
+        return None
+    return (float(closes.iloc[-1]) - start) / start * 100
+
+
 class TrendAnalyser:
-    """Derives trading signals from OHLCV data."""
+    """Derives trading signals from OHLCV data.
+
+    Args:
+        quarter_days: Trading days in a quarter, for ``quarter_change_pct``.
+        half_year_days: Trading days in half a year, for ``half_year_change_pct``.
+        year_days: Trading days in a year, for the 52-week low. The low is only reported
+            with a full year of history, so a recent listing never looks like it is at
+            its 52-week low.
+    """
+
+    def __init__(
+        self, quarter_days: int = 63, half_year_days: int = 126, year_days: int = 252
+    ) -> None:
+        self.quarter_days = quarter_days
+        self.half_year_days = half_year_days
+        self.year_days = year_days
 
     def analyse(self, data: OHLCVData) -> TrendSignal:
         df = data.df
@@ -96,6 +126,13 @@ class TrendAnalyser:
         today_vol = float(volumes.iloc[-1])
         vol_ratio = today_vol / vol_avg if vol_avg > 0 else 1.0
 
+        low_52w: float | None = None
+        pct_above_low: float | None = None
+        if len(closes) >= self.year_days:
+            low_52w = float(closes.tail(self.year_days).min())
+            if low_52w > 0:
+                pct_above_low = (latest_price - low_52w) / low_52w * 100
+
         signal = TrendSignal(
             ticker=data.ticker,
             latest_price=latest_price,
@@ -109,6 +146,10 @@ class TrendAnalyser:
             is_below_sma50=latest_price < sma50,
             volume_ratio=vol_ratio,
             currency=data.currency,
+            quarter_change_pct=_change_over(closes, self.quarter_days),
+            half_year_change_pct=_change_over(closes, self.half_year_days),
+            low_52w=low_52w,
+            pct_above_52w_low=pct_above_low,
         )
 
         logger.debug("Signal: %s", signal)

@@ -27,7 +27,7 @@ Each run:
 1. Fetches available ISA cash balance from Trading212
 2. Pulls daily + weekly OHLCV data for configured tickers
 3. Analyses trend direction and magnitude per ticker
-4. Applies each ticker's configured strategy (mild / moderate / aggressive) to determine if/how much to buy
+4. Applies each ticker's configured strategy (deep_value / mild / moderate / aggressive) to determine if/how much to buy
 5. Executes limit or market orders via Trading212 API
 6. Logs each executed trade and a session summary, with a Trading212 instrument page link per trade (the pattern is only confirmed for US shares; UK/EU links are best guesses)
 
@@ -35,9 +35,20 @@ Each run:
 
 | Mode       | Min Dip | Max Position Increase | Max Cash Deployed per Run |
 |------------|---------|----------------------|--------------------------|
+| deep_value | long-term downtrend (see below) | 3% of position | 3% of available cash |
 | mild       | -3%     | 5% of position       | 10% of available cash    |
 | moderate   | -2%     | 10% of position      | 25% of available cash    |
 | aggressive | -1%     | 20% of position      | 50% of available cash    |
+
+`deep_value` ignores daily dips (its `trigger` is `long_term_downtrend`). It buys only when a stock is
+within 2% of its 52-week closing low, or has fallen at least 20% over the last quarter (~63 trading
+days) or 30% over the last half year (~126 trading days) and is still below its 50-day SMA. The RSI
+gate and the other risk limits still apply. Its tickers are evaluated only on Wednesdays, in the
+`eu_morning` and `us_morning` sessions (`trade_weekday` / `trade_sessions` in `strategy.yaml`); if
+that Wednesday is a holiday, the week is skipped. These tickers fetch a year of prices, and a ticker
+listed for less than a year never counts as being at its 52-week low. When `max_trades_per_run`
+caps the buys, `deep_value` buys are ranked by their quarter or half-year fall (whichever is deeper),
+so a long slide isn't pushed out because the stock happens to be up that day.
 
 ---
 
@@ -216,7 +227,7 @@ A failed message is logged as `telegram_send_failed` and never stops the run. Le
 ## Configuration
 
 See `config/` for:
-- `stocks.yaml` — ticker lists by market; every ticker must set `strategy` (`mild` / `moderate` / `aggressive`)
+- `stocks.yaml` — ticker lists by market; every ticker must set `strategy` (`deep_value` / `mild` / `moderate` / `aggressive`)
 - `strategy.yaml` — mode definitions and global risk limits, including `min_trade_floor_gbp`, which raises any smaller percentage-based trade to that amount without touching `min_cash_reserve_gbp`, and `limit_order_expiry_days`, the age at which the bot cancels its own unfilled limit buy orders. Limit orders are placed as good-till-cancel because Trading212 has no expiry date option, so expiry happens at the next trading session after that age. Orders placed by hand are never cancelled, and a ticker with an open order isn't bought again until that order fills or is cancelled.
 - `schedules.yaml` — which sessions are active and which markets they cover
 

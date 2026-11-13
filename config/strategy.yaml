@@ -3,6 +3,32 @@
 
 # Strategy modes — each ticker in stocks.yaml picks one via its `strategy` attribute
 modes:
+  deep_value:
+    description: >
+      More cautious than mild. Ignores daily dips and only buys a stock that is in a major,
+      sustained downtrend: at or near its 52-week low, or down sharply over the last quarter
+      or half year and still below its 50-day SMA. Evaluated once a week only.
+    # Signal to respond to: daily_dip (default) | long_term_downtrend
+    trigger: long_term_downtrend
+    # Any one of these triggers a buy (leave one out to disable it)
+    # Latest close within this % of the lowest close of the last year (needs a year of prices)
+    max_pct_above_52w_low: 2.0
+    # Fell at least this much over the last quarter (~63 trading days)
+    min_quarter_change_pct: -20.0
+    # Fell at least this much over the last half year (~126 trading days)
+    min_half_year_change_pct: -30.0
+    # Only evaluate this mode's tickers on this weekday, in these sessions. Wednesday has the
+    # fewest UK/US market holidays (none in 2026–27, see schedules.yaml blackout_dates).
+    # If Wednesday is a holiday, that week is skipped.
+    trade_weekday: wednesday
+    trade_sessions: [eu_morning, us_morning]
+    max_position_increase_pct: 3.0
+    max_cash_deploy_pct: 3.0
+    order_type: limit
+    limit_discount_pct: 1.0
+    max_portfolio_weight_pct: 7.5
+    min_trade_gbp: 10.0
+
   mild:
     description: >
       Conservative DCA. Only buys on meaningful dips with small position increases.
@@ -81,3 +107,7 @@ analysis:
   # Simple moving average periods for trend confirmation
   sma_short: 20
   sma_long: 50
+  # Trading days behind the long-term signals used by the long_term_downtrend trigger
+  quarter_lookback_days: 63
+  half_year_lookback_days: 126
+  year_lookback_days: 252
