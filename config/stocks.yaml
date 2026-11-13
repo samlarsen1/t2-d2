@@ -81,6 +81,10 @@ markets:
         t212_ticker: SPCX_US_EQ
         name: SpaceX
         strategy: moderate
+      - symbol: NU
+        t212_ticker: NU_US_EQ
+        name: Nu Holdings
+        strategy: mild
 
   europe:
     currency: EUR
