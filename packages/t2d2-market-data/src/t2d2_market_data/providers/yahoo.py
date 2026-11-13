@@ -36,6 +36,7 @@ TICKER_OVERRIDES: dict[str, str] = {
     "SIE": "SIE.DE",
     "SAP": "SAP.DE",
     "ASML": "ASML.AS",  # Euronext Amsterdam
+    "ADYEN": "ADYEN.AS",  # Euronext Amsterdam
     "ALV": "ALV.DE",
     "VWRP": "VWRP.L",
 }

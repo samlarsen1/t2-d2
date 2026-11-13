@@ -1,7 +1,7 @@
 # T2-D2 Stock Configuration
 # Tickers must match Trading212 instrument codes.
 # Every traded ticker must set `strategy` to a mode defined in strategy.yaml
-# (mild | moderate | aggressive). The scheduler refuses to run otherwise.
+# (deep_value | mild | moderate | aggressive). The scheduler refuses to run otherwise.
 
 markets:
   uk:
@@ -32,6 +32,10 @@ markets:
         t212_ticker: UKWl_EQ
         name: Greencoat UK Wind
         strategy: mild
+      - symbol: RR
+        t212_ticker: RRl_EQ
+        name: Rolls-Royce
+        strategy: deep_value
 
   us:
     currency: USD
@@ -85,6 +89,22 @@ markets:
         t212_ticker: NU_US_EQ
         name: Nu Holdings
         strategy: mild
+      - symbol: ETN
+        t212_ticker: ETN_US_EQ
+        name: Eaton
+        strategy: deep_value
+      - symbol: NEE
+        t212_ticker: NEE_US_EQ
+        name: NextEra Energy
+        strategy: deep_value
+      - symbol: FSLR
+        t212_ticker: FSLR_US_EQ
+        name: First Solar
+        strategy: deep_value
+      - symbol: PWR
+        t212_ticker: PWR_US_EQ
+        name: Quanta Services
+        strategy: deep_value
 
   europe:
     currency: EUR
@@ -94,6 +114,10 @@ markets:
         t212_ticker: ASMLa_EQ
         name: ASML Holding
         strategy: mild
+      - symbol: ADYEN
+        t212_ticker: ADYENa_EQ
+        name: Adyen
+        strategy: deep_value
 
 # Global watchlist — tracked but not auto-traded (informational only)
 watchlist:
