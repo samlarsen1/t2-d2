@@ -136,4 +136,25 @@ def test_deep_value_fetches_a_year_of_prices() -> None:
 
     # A year of trading days in calendar days, so ~252 rows survive weekends
     assert history_days(configs["deep_value"]) >= 365
-    assert history_days(configs["mild"]) == 35
+
+
+def test_every_mode_fetches_enough_prices_for_the_sma200_slope() -> None:
+    configs = load_strategy_configs(CONFIG_DIR)
+
+    for mode, config in configs.items():
+        if not config.require_rising_trend_sma:
+            continue
+        days = history_days(config)
+        # Weekdays in the fetched window, less up to ~10 exchange holidays a year,
+        # must still leave 200 + 20 closes (the provider adds 10 calendar days of slack)
+        weekdays = (days + 10) * 5 // 7
+        assert weekdays - 10 >= config.trend_history_days, mode
+    assert history_days(configs["mild"]) == 331
+
+
+def test_deep_value_history_is_unchanged_by_the_sma_gate() -> None:
+    configs = load_strategy_configs(CONFIG_DIR)
+
+    # Exempt from the gate, so its window is still the one-year lookback
+    assert history_days(configs["deep_value"]) == 380
+

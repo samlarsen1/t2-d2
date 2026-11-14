@@ -23,6 +23,9 @@ modes:
     # holiday that Wednesday, the week is skipped.
     trade_weekday: wednesday
     trade_sessions: [deep_value_midweek]
+    # deep_value buys long slides, where the 200-day SMA is almost always falling, so it skips
+    # the rising-SMA gate that every other mode applies (default: true)
+    require_rising_trend_sma: false
     max_position_increase_pct: 3.0
     max_cash_deploy_pct: 3.0
     order_type: limit
@@ -112,3 +115,8 @@ analysis:
   quarter_lookback_days: 63
   half_year_lookback_days: 126
   year_lookback_days: 252
+  # Buys in modes with require_rising_trend_sma (all but deep_value) need the trend SMA
+  # (trend_sma_days) to be higher than it was trend_slope_days trading days earlier. Their
+  # tickers without trend_sma_days + trend_slope_days of price history are never bought.
+  trend_sma_days: 200
+  trend_slope_days: 20

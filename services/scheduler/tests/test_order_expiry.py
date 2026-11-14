@@ -278,9 +278,9 @@ class _FixedDate(date):
 @pytest.mark.parametrize(
     ("session", "today", "expected_fetches"),
     [
-        ("deep_value_midweek", date(2026, 11, 18), {370: [("NU", "uk")]}),  # Wednesday
+        ("deep_value_midweek", date(2026, 11, 18), {380: [("NU", "uk")]}),  # Wednesday
         ("deep_value_midweek", date(2026, 11, 19), {}),  # Thursday: nothing to evaluate
-        ("eu_morning", date(2026, 11, 18), {35: [("RIO", "uk")]}),  # deep_value not in session
+        ("eu_morning", date(2026, 11, 18), {331: [("RIO", "uk")]}),  # deep_value not in session
     ],
 )
 async def test_cycle_fetches_weekly_tickers_only_in_their_session(

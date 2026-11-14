@@ -64,3 +64,51 @@ def test_52w_low_needs_a_full_year() -> None:
 
     assert signal.half_year_change_pct is not None
     assert signal.low_52w is None
+
+
+def test_sma_trend_compares_200_day_average_with_20_sessions_ago() -> None:
+    closes = [float(i) for i in range(1, 231)]  # 230 steadily rising closes
+
+    signal = TrendAnalyser().analyse(_history(closes))
+
+    # Last 200 closes are 31..230; 20 sessions earlier the window was 11..210
+    assert signal.sma_trend == pytest.approx(130.5)
+    assert signal.sma_trend_prior == pytest.approx(110.5)
+    assert signal.is_sma_trend_rising
+
+
+def test_sma_trend_not_rising_when_falling_or_flat() -> None:
+    falling = TrendAnalyser().analyse(_history([300.0 - i for i in range(230)]))
+    flat = TrendAnalyser().analyse(_history([100.0] * 230))
+
+    assert not falling.is_sma_trend_rising
+    assert flat.sma_trend == pytest.approx(flat.sma_trend_prior)
+    assert not flat.is_sma_trend_rising
+
+
+def test_sma_trend_ignores_a_recent_dip_in_a_rising_trend() -> None:
+    # A long rise then a sharp 10-day drop: the 200-day average is still higher than before
+    closes = [100.0 + i for i in range(210)] + [250.0] * 10
+
+    signal = TrendAnalyser().analyse(_history(closes))
+
+    assert signal.is_sma_trend_rising
+
+
+def test_sma_trend_needs_period_plus_lag_closes() -> None:
+    just_enough = TrendAnalyser().analyse(_history([float(i) for i in range(1, 221)]))
+    one_short = TrendAnalyser().analyse(_history([float(i) for i in range(1, 220)]))
+
+    assert just_enough.sma_trend_prior == pytest.approx(100.5)  # closes 1..200
+    assert one_short.sma_trend is None
+    assert one_short.sma_trend_prior is None
+    assert not one_short.is_sma_trend_rising
+
+
+def test_sma_trend_uses_configured_periods() -> None:
+    signal = TrendAnalyser(trend_sma_days=3, trend_slope_days=2).analyse(
+        _history([1.0, 2.0, 3.0, 4.0, 5.0])
+    )
+
+    assert signal.sma_trend == pytest.approx(4.0)
+    assert signal.sma_trend_prior == pytest.approx(2.0)

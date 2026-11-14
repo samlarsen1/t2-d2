@@ -47,6 +47,8 @@ def make_signal(
     weekly_change_pct: float = -8.0,
     rsi: float = 35.0,
     latest_price: float = 100.0,
+    sma_trend: float | None = 90.0,
+    sma_trend_prior: float | None = 85.0,
 ) -> TrendSignal:
     return TrendSignal(
         ticker=ticker,
@@ -60,6 +62,8 @@ def make_signal(
         is_below_sma20=True,
         is_below_sma50=True,
         volume_ratio=1.2,
+        sma_trend=sma_trend,
+        sma_trend_prior=sma_trend_prior,
     )
 
 
@@ -86,6 +90,94 @@ def test_skip_when_daily_dip_insufficient() -> None:
     )
     assert not decision.should_trade
     assert "Daily change" in decision.reason
+
+
+@pytest.mark.parametrize(
+    ("sma_trend", "sma_trend_prior"),
+    [(85.0, 90.0), (90.0, 90.0)],
+    ids=["falling", "flat"],
+)
+def test_skip_when_sma200_not_rising(sma_trend: float, sma_trend_prior: float) -> None:
+    engine = AlgoEngine(make_config())
+    decision = engine.evaluate(
+        signal=make_signal(sma_trend=sma_trend, sma_trend_prior=sma_trend_prior),
+        position=None,
+        available_cash=1000.0,
+        total_portfolio_value=5000.0,
+        fx_rate=1.0,
+    )
+    assert not decision.should_trade
+    assert decision.reason.startswith("SMA200 not rising")
+    assert "20 days ago" in decision.reason
+
+
+@pytest.mark.parametrize(
+    ("sma_trend", "sma_trend_prior"),
+    [(None, None), (90.0, None), (None, 85.0)],
+)
+def test_skip_when_sma200_slope_unknown(
+    sma_trend: float | None, sma_trend_prior: float | None
+) -> None:
+    # Too little history to know the slope: never buy
+    engine = AlgoEngine(make_config())
+    decision = engine.evaluate(
+        signal=make_signal(sma_trend=sma_trend, sma_trend_prior=sma_trend_prior),
+        position=None,
+        available_cash=1000.0,
+        total_portfolio_value=5000.0,
+        fx_rate=1.0,
+    )
+    assert not decision.should_trade
+    assert decision.reason == "SMA200 slope unknown: needs 220 days of prices"
+
+
+@pytest.mark.parametrize(
+    ("sma_trend", "sma_trend_prior"),
+    [(90.0, 95.0), (None, None)],
+    ids=["falling", "unknown"],
+)
+def test_mode_can_opt_out_of_the_sma_gate(
+    sma_trend: float | None, sma_trend_prior: float | None
+) -> None:
+    engine = AlgoEngine(
+        make_config(
+            mode="deep_value",
+            trigger="long_term_downtrend",
+            min_daily_dip_pct=None,
+            min_weekly_dip_pct=None,
+            min_quarter_change_pct=-20.0,
+            require_rising_trend_sma=False,
+        )
+    )
+    signal = make_signal(daily_change_pct=1.0, sma_trend=sma_trend, sma_trend_prior=sma_trend_prior)
+    signal.quarter_change_pct = -25.0
+    decision = engine.evaluate(
+        signal=signal,
+        position=None,
+        available_cash=1000.0,
+        total_portfolio_value=5000.0,
+        fx_rate=1.0,
+    )
+    assert decision.should_trade
+
+
+def test_deep_value_is_exempt_from_the_sma_gate_in_config() -> None:
+    configs = load_strategy_configs(REPO_ROOT / "config")
+
+    assert not configs["deep_value"].require_rising_trend_sma
+    assert all(c.require_rising_trend_sma for m, c in configs.items() if m != "deep_value")
+
+
+def test_sma_gate_uses_configured_periods() -> None:
+    engine = AlgoEngine(make_config(trend_sma_days=150, trend_slope_days=10))
+    decision = engine.evaluate(
+        signal=make_signal(sma_trend=None, sma_trend_prior=None),
+        position=None,
+        available_cash=1000.0,
+        total_portfolio_value=5000.0,
+        fx_rate=1.0,
+    )
+    assert decision.reason == "SMA150 slope unknown: needs 160 days of prices"
 
 
 def test_skip_when_rsi_too_high() -> None:

@@ -195,16 +195,20 @@ def active_tickers(
 def history_days(config: StrategyConfig, buffer_days: int = 5) -> int:
     """Return how many days of prices to fetch for a strategy's tickers.
 
-    Long-term modes need a full year of trading days; converting to calendar days
-    leaves enough rows after weekends and holidays.
+    Modes with the rising-trend-SMA gate need enough trading days for it (200 + 20 by
+    default); long-term modes need a full year. Trading days are converted to calendar
+    days, with ~4% extra for exchange holidays, so enough rows survive weekends and holidays.
 
     Args:
         config: The ticker's strategy.
         buffer_days: Extra days on top of the longest lookback.
     """
+    trading_days = max(config.daily_lookback_days, config.weekly_lookback_days)
+    if config.require_rising_trend_sma:
+        trading_days = max(trading_days, config.trend_history_days)
     if config.needs_long_history:
-        return int(config.year_lookback_days) * 365 // 252 + buffer_days
-    return int(max(config.daily_lookback_days, config.weekly_lookback_days)) + buffer_days
+        trading_days = max(trading_days, config.year_lookback_days)
+    return int(trading_days) * 365 // 252 + int(trading_days) // 25 + buffer_days
 
 
 INACTIVE_ORDER_STATUSES = {OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.CANCELLING}
@@ -443,8 +447,8 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
                 hours=shared_config.ticker_cooldown_hours,
             )
 
-        # Long-term strategies need a year of prices; fetch each history length separately
-        # so the short-term signals of other tickers stay unchanged
+        # Long-term strategies need a year of prices, the rest enough for the trend SMA
+        # slope; fetch each history length separately
         by_period: dict[int, list[tuple[str, str]]] = {}
         for symbol, _t212, market, strategy in tickers:
             period = history_days(strategy_configs[strategy])
@@ -453,6 +457,8 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
             quarter_days=shared_config.quarter_lookback_days,
             half_year_days=shared_config.half_year_lookback_days,
             year_days=shared_config.year_lookback_days,
+            trend_sma_days=shared_config.trend_sma_days,
+            trend_slope_days=shared_config.trend_slope_days,
         )
         signals = {}
         for period, yahoo_tickers in by_period.items():

@@ -25,7 +25,7 @@ t2-d2/
 
 Each run:
 1. Fetches available ISA cash balance from Trading212
-2. Pulls daily + weekly OHLCV data for configured tickers
+2. Pulls OHLCV data for configured tickers (about 220 trading days, or a year for `deep_value`)
 3. Analyses trend direction and magnitude per ticker
 4. Applies each ticker's configured strategy (deep_value / mild / moderate / aggressive) to determine if/how much to buy
 5. Executes limit or market orders via Trading212 API
@@ -50,6 +50,15 @@ Wednesday, the week is skipped. These tickers fetch a year of prices, and a tick
 listed for less than a year never counts as being at its 52-week low. When `max_trades_per_run`
 caps the buys, `deep_value` buys are ranked by their quarter or half-year fall (whichever is deeper),
 so a long slide isn't pushed out because the stock happens to be up that day.
+
+**Rising 200-day SMA (all modes except `deep_value`).** No buy is placed unless the 200-day simple
+moving average of closes is strictly higher today than it was 20 trading days ago. It is checked after the dip or
+downtrend trigger and before the RSI gate, and the skip reason reads `SMA200 not rising: …`. A ticker
+with fewer than 220 closes never passes (`SMA200 slope unknown: …`), so recent listings are not
+bought. Both periods are set by `trend_sma_days` / `trend_slope_days` under `analysis` in
+`strategy.yaml`; a mode opts out with `require_rising_trend_sma: false`. `deep_value` does, because
+the long slides it buys almost always have a falling 200-day SMA. Modes with the gate fetch at least
+~220 trading days of prices.
 
 ---
 
