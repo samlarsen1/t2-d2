@@ -30,7 +30,7 @@ from t2d2_algo import AlgoEngine, RunResult, TradeExecutor, load_strategy_config
 from t2d2_algo.strategies.base import StrategyConfig, TradeDecision
 from t2d2_client import Trading212Client
 from t2d2_client.models import HistoricalOrder, Order, OrderStatus, OrderType
-from t2d2_market_data import TrendAnalyser, YahooFinanceProvider
+from t2d2_market_data import PriceCache, TrendAnalyser, YahooFinanceProvider
 
 from scheduler.telegram import (
     TelegramNotifier,
@@ -45,6 +45,11 @@ load_dotenv()
 # Root of the repository
 REPO_ROOT = Path(__file__).parents[4]
 CONFIG_DIR = REPO_ROOT / "config"
+DEFAULT_DATA_DIR = REPO_ROOT / "data"
+# Calendar days the provider fetches on top of history_days (see YahooFinanceProvider.fetch)
+FETCH_SLACK_DAYS = 10
+# Extra days of cached prices kept beyond the longest fetch window
+CACHE_RETENTION_MARGIN_DAYS = 7
 
 log = structlog.get_logger()
 
@@ -209,6 +214,21 @@ def history_days(config: StrategyConfig, buffer_days: int = 5) -> int:
     if config.needs_long_history:
         trading_days = max(trading_days, config.year_lookback_days)
     return int(trading_days) * 365 // 252 + int(trading_days) // 25 + buffer_days
+
+
+def price_cache_dir() -> Path:
+    """Return the folder holding cached daily prices (``$T2D2_DATA_DIR/prices``)."""
+    return Path(os.getenv("T2D2_DATA_DIR") or DEFAULT_DATA_DIR) / "prices"
+
+
+def cache_retention_days(strategy_configs: dict[str, StrategyConfig]) -> int:
+    """Return how many calendar days of cached prices to keep.
+
+    Covers the longest window any strategy fetches, so pruning never deletes prices a run
+    still needs (which would force a full download).
+    """
+    longest = max(history_days(c) for c in strategy_configs.values())
+    return longest + FETCH_SLACK_DAYS + CACHE_RETENTION_MARGIN_DAYS
 
 
 INACTIVE_ORDER_STATUSES = {OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.CANCELLING}
@@ -406,7 +426,17 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
             )
         log.info("fetching_market_data", ticker_count=len(tickers), session=session)
 
-        provider = YahooFinanceProvider()
+        # Completed daily bars are cached on disk in date folders; drop folders past the
+        # longest window so the cache doesn't grow forever
+        price_cache = PriceCache(price_cache_dir())
+        retention_days = cache_retention_days(strategy_configs)
+        try:
+            pruned = price_cache.prune(retention_days, date.today())
+            if pruned:
+                log.info("price_cache_pruned", partitions=len(pruned), keep_days=retention_days)
+        except OSError as e:
+            log.warning("price_cache_prune_failed", error_type=type(e).__name__)
+        provider = YahooFinanceProvider(price_cache=price_cache)
 
         # Build cooldown set from recent order history + pending orders
         t212_to_symbol = {t212: sym for sym, t212, _, _ in tickers}

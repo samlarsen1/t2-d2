@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace, TracebackType
 from typing import Any
 
@@ -182,6 +183,9 @@ class FakeCycleClient(FakeClient):
 class FakeProvider:
     fetch_error: Exception | None = None
 
+    def __init__(self, **kwargs: Any) -> None:
+        self.kwargs = kwargs
+
     async def fetch_multiple(self, tickers: list[Any], period_days: int) -> dict[str, Any]:
         if self.fetch_error:
             raise self.fetch_error
@@ -204,11 +208,12 @@ CYCLE_CLIENTS: list[FakeCycleClient] = []
 
 
 @pytest.fixture
-def notifier(monkeypatch: pytest.MonkeyPatch) -> FakeNotifier:
+def notifier(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeNotifier:
     fake = FakeNotifier()
     CYCLE_CLIENTS.clear()
     monkeypatch.setenv("T212_API_KEY", "key")
     monkeypatch.setenv("T212_API_SECRET", "secret")
+    monkeypatch.setenv("T2D2_DATA_DIR", str(tmp_path))
     monkeypatch.setattr(main, "Trading212Client", FakeCycleClient)
     monkeypatch.setattr(main, "YahooFinanceProvider", FakeProvider)
     monkeypatch.setattr(TelegramNotifier, "from_env", classmethod(lambda cls: fake))
@@ -319,3 +324,26 @@ async def test_cycle_fetches_weekly_tickers_only_in_their_session(
     await main.run_trading_cycle(session, dry_run=True)
 
     assert fetches == expected_fetches
+
+
+async def test_cycle_prunes_old_price_partitions(
+    notifier: FakeNotifier, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prices = tmp_path / "prices"
+    (prices / "2020-01-02").mkdir(parents=True)
+    (prices / "2020-01-02" / "AAPL.csv").write_text("Date,Close\n")
+    recent = (date.today() - timedelta(days=3)).isoformat()
+    (prices / recent).mkdir()
+    (prices / "README.txt").write_text("keep me")
+    created: list[FakeProvider] = []
+
+    def make_provider(**kwargs: Any) -> FakeProvider:
+        created.append(FakeProvider(**kwargs))
+        return created[-1]
+
+    monkeypatch.setattr(main, "YahooFinanceProvider", make_provider)
+
+    await main.run_trading_cycle("eu_morning", dry_run=True)
+
+    assert sorted(p.name for p in prices.iterdir()) == [recent, "README.txt"]
+    assert created[0].kwargs["price_cache"].root == prices

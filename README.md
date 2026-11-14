@@ -58,7 +58,7 @@ with fewer than 220 closes never passes (`SMA200 slope unknown: …`), so recent
 bought. Both periods are set by `trend_sma_days` / `trend_slope_days` under `analysis` in
 `strategy.yaml`; a mode opts out with `require_rising_trend_sma: false`. `deep_value` does, because
 the long slides it buys almost always have a falling 200-day SMA. Modes with the gate fetch at least
-~220 trading days of prices.
+~220 trading days of prices, served mostly from the [price cache](#price-cache).
 
 ---
 
@@ -242,6 +242,37 @@ See `config/` for:
 - `strategy.yaml` — mode definitions and global risk limits, including `min_trade_floor_gbp`, which raises any smaller percentage-based trade to that amount without touching `min_cash_reserve_gbp`, and `limit_order_expiry_days`, the age at which the bot cancels its own unfilled limit buy orders. Limit orders are placed as good-till-cancel because Trading212 has no expiry date option, so expiry happens at the next trading session after that age. Orders placed by hand are never cancelled, and a ticker with an open order isn't bought again until that order fills or is cancelled.
 - `schedules.yaml` — which sessions are active and which markets they cover; a session's optional `strategies` list limits it to tickers on those strategies (e.g. `deep_value_midweek` only runs `deep_value`)
 
+### Price cache
+
+Completed daily bars from Yahoo Finance are cached on disk, so each run only downloads the last few
+days instead of up to a year per ticker:
+
+```
+data/prices/
+├── 2026-11-12/
+│   ├── AAPL.csv        # one row: that day's bar for that ticker
+│   └── NG.L.csv
+└── 2026-11-13/
+    └── ...
+```
+
+- One folder per trading date, one CSV per Yahoo ticker. Today's bar is always downloaded and never
+  cached, because it changes during the day.
+- When a ticker's cache covers the window a run needs, only its last 5 cached days through today are
+  downloaded. If those overlap closes no longer match Yahoo's (Yahoo re-adjusts past prices after a
+  split or dividend), that ticker's cache is deleted and its full history downloaded again.
+- Every trading run deletes date folders older than the longest window any strategy fetches plus a
+  margin (397 days with the current config). Only folders named `YYYY-MM-DD` are ever deleted.
+- `data/` is gitignored. Set `T2D2_DATA_DIR` to keep it elsewhere (the cache goes in
+  `$T2D2_DATA_DIR/prices`).
+
+The first run after a fresh install downloads full histories; later runs are incremental. The cache
+is always safe to delete; the next run just downloads full histories again:
+
+```bash
+rm -rf data/prices
+```
+
 ---
 
 ## Environment Variables
@@ -252,6 +283,7 @@ See `config/` for:
 | `T212_BASE_URL`           | `https://live.trading212.com` or demo URL    |
 | `DRY_RUN`                 | `true` (default) simulates without placing orders; `false` places real orders. Overridden by `--dry-run` / `--no-dry-run` |
 | `TELEGRAM_BOT_TOKEN`      | Optional. Telegram bot token from @BotFather; with `TELEGRAM_CHAT_ID`, sends a message per executed trade (or "no trades today") and a daily wrap summary |
+| `T2D2_DATA_DIR`           | Optional. Folder for cached market data (default: `data/` in the repo); prices go in `prices/` inside it (see [Price cache](#price-cache)) |
 | `TELEGRAM_CHAT_ID`        | Optional. Chat to send trade messages to (see [Telegram Notifications](#telegram-notifications)) |
 
 ---
