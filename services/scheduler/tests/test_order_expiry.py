@@ -220,7 +220,11 @@ def notifier(monkeypatch: pytest.MonkeyPatch) -> FakeNotifier:
             "sessions": {
                 "eu_morning": {"markets": ["uk"], "enabled": True},
                 # strategy.yaml trade_sessions must name sessions that exist
-                "us_morning": {"markets": ["us"], "enabled": True},
+                "deep_value_midweek": {
+                    "markets": ["uk"],
+                    "enabled": True,
+                    "strategies": ["deep_value"],
+                },
             }
         },
     )
@@ -272,15 +276,17 @@ class _FixedDate(date):
 
 
 @pytest.mark.parametrize(
-    ("today", "expected_fetches"),
+    ("session", "today", "expected_fetches"),
     [
-        (date(2026, 11, 18), {35: [("RIO", "uk")], 370: [("NU", "uk")]}),  # Wednesday
-        (date(2026, 11, 19), {35: [("RIO", "uk")]}),  # Thursday: weekly ticker skipped
+        ("deep_value_midweek", date(2026, 11, 18), {370: [("NU", "uk")]}),  # Wednesday
+        ("deep_value_midweek", date(2026, 11, 19), {}),  # Thursday: nothing to evaluate
+        ("eu_morning", date(2026, 11, 18), {35: [("RIO", "uk")]}),  # deep_value not in session
     ],
 )
-async def test_cycle_fetches_weekly_tickers_with_long_history_on_their_day(
+async def test_cycle_fetches_weekly_tickers_only_in_their_session(
     notifier: FakeNotifier,
     monkeypatch: pytest.MonkeyPatch,
+    session: str,
     today: date,
     expected_fetches: dict[int, list[tuple[str, str]]],
 ) -> None:
@@ -310,6 +316,6 @@ async def test_cycle_fetches_weekly_tickers_with_long_history_on_their_day(
         },
     )
 
-    await main.run_trading_cycle("eu_morning", dry_run=True)
+    await main.run_trading_cycle(session, dry_run=True)
 
     assert fetches == expected_fetches

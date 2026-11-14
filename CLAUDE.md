@@ -11,7 +11,7 @@ uv sync                                  # install/update deps (uv.lock)
 .venv/bin/python services/scheduler/src/scheduler/main.py --session <session>
 ```
 
-Sessions: `eu_morning`, `eu_afternoon`, `us_morning`, `us_afternoon`, `daily_close_wrap`. Dry-run by default (`DRY_RUN=true`).
+Sessions: `eu_morning`, `eu_afternoon`, `us_morning`, `us_afternoon`, `deep_value_midweek`, `daily_close_wrap`. Dry-run by default (`DRY_RUN=true`).
 
 ## Rules
 

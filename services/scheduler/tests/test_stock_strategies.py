@@ -12,6 +12,7 @@ from scheduler.main import (
     history_days,
     load_schedules_config,
     load_stocks_config,
+    validate_session_strategies,
     validate_stock_strategies,
     validate_strategy_sessions,
 )
@@ -84,17 +85,50 @@ TICKERS = [("NET", "NET_US_EQ", "us", "mild"), ("NU", "NU_US_EQ", "us", "deep_va
 @pytest.mark.parametrize(
     ("session", "day", "expected"),
     [
-        ("us_morning", WEDNESDAY, ["NET", "NU"]),
+        ("deep_value_midweek", WEDNESDAY, ["NU"]),
+        ("deep_value_midweek", THURSDAY, []),  # e.g. a manual run on the wrong day
+        ("us_morning", WEDNESDAY, ["NET"]),
         ("us_afternoon", WEDNESDAY, ["NET"]),
-        ("us_morning", THURSDAY, ["NET"]),
     ],
 )
-def test_deep_value_tickers_only_run_wednesday_morning(
+def test_deep_value_tickers_only_run_in_midweek_session(
     session: str, day: date, expected: list[str]
 ) -> None:
     configs = load_strategy_configs(CONFIG_DIR)
+    session_strategies = load_schedules_config()["sessions"][session].get("strategies")
 
-    assert [t[0] for t in active_tickers(TICKERS, configs, session, day)] == expected
+    active = active_tickers(TICKERS, configs, session, day, session_strategies=session_strategies)
+
+    assert [t[0] for t in active] == expected
+
+
+def test_session_strategies_filter_drops_other_strategies() -> None:
+    configs = load_strategy_configs(CONFIG_DIR)
+
+    active = active_tickers(TICKERS, configs, "us_morning", WEDNESDAY, session_strategies=["mild"])
+
+    assert [t[0] for t in active] == ["NET"]
+
+
+def test_repo_session_strategies_are_valid() -> None:
+    validate_session_strategies(
+        load_schedules_config()["sessions"], set(load_strategy_configs(CONFIG_DIR))
+    )
+
+
+def test_unknown_session_strategy_rejected() -> None:
+    sessions = {"deep_value_midweek": {"markets": ["us"], "strategies": ["deep_valu"]}}
+
+    with pytest.raises(ValueError, match="deep_value_midweek: unknown strategy 'deep_valu'"):
+        validate_session_strategies(sessions, {"deep_value", "mild"})
+
+
+def test_midweek_session_covers_eu_and_us_on_wednesday() -> None:
+    session = load_schedules_config()["sessions"]["deep_value_midweek"]
+
+    assert session["schedule"].startswith("Wed ")
+    assert {"uk", "europe", "us"} <= set(session["markets"])
+    assert session["strategies"] == ["deep_value"]
 
 
 def test_deep_value_fetches_a_year_of_prices() -> None:

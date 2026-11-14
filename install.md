@@ -204,7 +204,8 @@ git pull
 uv sync --all-packages --no-dev
 ```
 
-If `config/schedules.yaml` changed its `schedule` times, re-run the timer step in step 7, then:
+If `config/schedules.yaml` added a session or changed a `schedule` time, re-run the timer step in
+step 7, then:
 
 ```bash
 sudo systemctl daemon-reload

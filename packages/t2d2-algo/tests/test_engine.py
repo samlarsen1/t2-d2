@@ -183,6 +183,7 @@ def test_deep_value_config_is_weekly_and_below_mild() -> None:
 
     assert deep.trigger == "long_term_downtrend"
     assert deep.trade_weekday == "wednesday"
+    assert deep.trade_sessions == ["deep_value_midweek"]
     assert deep.needs_long_history and not mild.needs_long_history
     assert deep.max_cash_deploy_pct < mild.max_cash_deploy_pct
     assert deep.max_position_increase_pct < mild.max_position_increase_pct

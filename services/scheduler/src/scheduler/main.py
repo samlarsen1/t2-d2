@@ -142,11 +142,34 @@ def validate_strategy_sessions(
         raise ValueError("Invalid strategy.yaml trade_sessions: " + "; ".join(problems))
 
 
+def validate_session_strategies(
+    sessions: dict[str, dict[str, Any]], strategies: set[str]
+) -> None:
+    """Check every session's optional ``strategies`` list names known strategy modes.
+
+    Args:
+        sessions: The ``sessions`` mapping from schedules.yaml.
+        strategies: Strategy mode names defined in strategy.yaml.
+
+    Raises:
+        ValueError: If any session names an unknown strategy.
+    """
+    problems = [
+        f"{session}: unknown strategy {name!r}"
+        for session, session_cfg in sessions.items()
+        for name in session_cfg.get("strategies") or []
+        if name not in strategies
+    ]
+    if problems:
+        raise ValueError("Invalid schedules.yaml strategies: " + "; ".join(problems))
+
+
 def active_tickers(
     tickers: list[tuple[str, str, str, str]],
     strategy_configs: dict[str, StrategyConfig],
     session: str,
     today: date,
+    session_strategies: list[str] | None = None,
 ) -> list[tuple[str, str, str, str]]:
     """Drop tickers whose strategy doesn't run in this session on this day.
 
@@ -155,11 +178,18 @@ def active_tickers(
         strategy_configs: Strategy modes from strategy.yaml.
         session: Session being run.
         today: Date of the run.
+        session_strategies: The session's ``strategies`` list from schedules.yaml; when set,
+            tickers on any other strategy are dropped.
 
     Returns:
         The tickers to evaluate, in their original order.
     """
-    return [t for t in tickers if strategy_configs[t[3]].is_active(session, today)]
+    return [
+        t
+        for t in tickers
+        if (session_strategies is None or t[3] in session_strategies)
+        and strategy_configs[t[3]].is_active(session, today)
+    ]
 
 
 def history_days(config: StrategyConfig, buffer_days: int = 5) -> int:
@@ -312,6 +342,7 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     stocks_cfg = load_stocks_config()
     validate_stock_strategies(stocks_cfg, set(strategy_configs))
     validate_strategy_sessions(strategy_configs, set(schedules["sessions"]))
+    validate_session_strategies(schedules["sessions"], set(strategy_configs))
     engines = {mode: AlgoEngine(cfg) for mode, cfg in strategy_configs.items()}
     # Global limits and analysis settings are the same in every mode's config
     shared_config = next(iter(strategy_configs.values()))
@@ -357,7 +388,13 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
 
         # Fetch market data for the session's tickers whose strategy runs today
         all_tickers = get_tickers_for_session(stocks_cfg, markets)
-        tickers = active_tickers(all_tickers, strategy_configs, session, date.today())
+        tickers = active_tickers(
+            all_tickers,
+            strategy_configs,
+            session,
+            date.today(),
+            session_strategies=session_cfg.get("strategies"),
+        )
         if len(tickers) < len(all_tickers):
             log.info(
                 "tickers_inactive_today",
@@ -530,7 +567,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--session",
         required=True,
-        choices=["eu_morning", "eu_afternoon", "us_morning", "us_afternoon", "daily_close_wrap"],
+        choices=[
+            "eu_morning",
+            "eu_afternoon",
+            "us_morning",
+            "us_afternoon",
+            "deep_value_midweek",
+            "daily_close_wrap",
+        ],
         help="Trading session to run",
     )
     parser.add_argument(
