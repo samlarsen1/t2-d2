@@ -33,6 +33,9 @@ service-account*.json
 *.iml
 .DS_Store
 
+# Cached market data (rebuilt from Yahoo Finance on demand)
+data/
+
 # Logs
 *.log
 logs/

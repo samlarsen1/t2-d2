@@ -33,6 +33,20 @@ class TrendSignal:
     half_year_change_pct: float | None = None  # ~126 trading days
     low_52w: float | None = None               # Lowest close over ~252 trading days
     pct_above_52w_low: float | None = None     # How far the latest close sits above low_52w
+    # Long-term trend SMA (default 200 days) today and ``trend_slope_days`` sessions earlier;
+    # None when the price history is too short to compute both
+    sma_trend: float | None = None
+    sma_trend_prior: float | None = None
+
+    @property
+    def is_sma_trend_rising(self) -> bool:
+        """True if the long-term SMA is higher today than ``trend_slope_days`` sessions ago.
+
+        False when either value is unknown, so a short history never passes as an uptrend.
+        """
+        if self.sma_trend is None or self.sma_trend_prior is None:
+            return False
+        return self.sma_trend > self.sma_trend_prior
 
     @property
     def is_downtrend(self) -> bool:
@@ -76,6 +90,21 @@ def _sma(series: pd.Series, period: int) -> float:
     return float(series.tail(period).mean())
 
 
+def _sma_with_prior(
+    closes: pd.Series, period: int, lag: int
+) -> tuple[float | None, float | None]:
+    """SMA over the last ``period`` closes, and the same SMA as it stood ``lag`` closes earlier.
+
+    Unlike ``_sma``, this never falls back to a shorter window: both values are None unless
+    there are at least ``period + lag`` closes.
+    """
+    if len(closes) < period + lag:
+        return None, None
+    current = float(closes.tail(period).mean())
+    prior = float(closes.iloc[-(period + lag) : len(closes) - lag].mean())
+    return current, prior
+
+
 def _change_over(closes: pd.Series, days: int) -> float | None:
     """% change over the last ``days`` trading days, or None without enough history."""
     if len(closes) < days + 1:
@@ -95,14 +124,24 @@ class TrendAnalyser:
         year_days: Trading days in a year, for the 52-week low. The low is only reported
             with a full year of history, so a recent listing never looks like it is at
             its 52-week low.
+        trend_sma_days: Period of the long-term trend SMA (``sma_trend``).
+        trend_slope_days: Sessions back to compare the trend SMA against
+            (``sma_trend_prior``), to tell whether it is rising.
     """
 
     def __init__(
-        self, quarter_days: int = 63, half_year_days: int = 126, year_days: int = 252
+        self,
+        quarter_days: int = 63,
+        half_year_days: int = 126,
+        year_days: int = 252,
+        trend_sma_days: int = 200,
+        trend_slope_days: int = 20,
     ) -> None:
         self.quarter_days = quarter_days
         self.half_year_days = half_year_days
         self.year_days = year_days
+        self.trend_sma_days = trend_sma_days
+        self.trend_slope_days = trend_slope_days
 
     def analyse(self, data: OHLCVData) -> TrendSignal:
         df = data.df
@@ -133,6 +172,10 @@ class TrendAnalyser:
             if low_52w > 0:
                 pct_above_low = (latest_price - low_52w) / low_52w * 100
 
+        sma_trend, sma_trend_prior = _sma_with_prior(
+            closes, self.trend_sma_days, self.trend_slope_days
+        )
+
         signal = TrendSignal(
             ticker=data.ticker,
             latest_price=latest_price,
@@ -150,6 +193,8 @@ class TrendAnalyser:
             half_year_change_pct=_change_over(closes, self.half_year_days),
             low_52w=low_52w,
             pct_above_52w_low=pct_above_low,
+            sma_trend=sma_trend,
+            sma_trend_prior=sma_trend_prior,
         )
 
         logger.debug("Signal: %s", signal)

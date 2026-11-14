@@ -7,11 +7,14 @@ from typing import Any
 import pytest
 from scheduler.main import (
     CONFIG_DIR,
+    DEFAULT_DATA_DIR,
     active_tickers,
+    cache_retention_days,
     get_tickers_for_session,
     history_days,
     load_schedules_config,
     load_stocks_config,
+    price_cache_dir,
     validate_session_strategies,
     validate_stock_strategies,
     validate_strategy_sessions,
@@ -136,4 +139,41 @@ def test_deep_value_fetches_a_year_of_prices() -> None:
 
     # A year of trading days in calendar days, so ~252 rows survive weekends
     assert history_days(configs["deep_value"]) >= 365
-    assert history_days(configs["mild"]) == 35
+
+
+def test_every_mode_fetches_enough_prices_for_the_sma200_slope() -> None:
+    configs = load_strategy_configs(CONFIG_DIR)
+
+    for mode, config in configs.items():
+        if not config.require_rising_trend_sma:
+            continue
+        days = history_days(config)
+        # Weekdays in the fetched window, less up to ~10 exchange holidays a year,
+        # must still leave 200 + 20 closes (the provider adds 10 calendar days of slack)
+        weekdays = (days + 10) * 5 // 7
+        assert weekdays - 10 >= config.trend_history_days, mode
+    assert history_days(configs["mild"]) == 331
+
+
+def test_deep_value_history_is_unchanged_by_the_sma_gate() -> None:
+    configs = load_strategy_configs(CONFIG_DIR)
+
+    # Exempt from the gate, so its window is still the one-year lookback
+    assert history_days(configs["deep_value"]) == 380
+
+
+def test_cache_retention_covers_the_longest_fetch_window() -> None:
+    configs = load_strategy_configs(CONFIG_DIR)
+
+    longest = max(history_days(c) for c in configs.values())
+    # The provider fetches 10 calendar days on top of history_days
+    assert cache_retention_days(configs) >= longest + 10
+    assert cache_retention_days(configs) == 397
+
+
+def test_price_cache_dir_defaults_to_repo_data_folder(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("T2D2_DATA_DIR", raising=False)
+    assert price_cache_dir() == DEFAULT_DATA_DIR / "prices"
+
+    monkeypatch.setenv("T2D2_DATA_DIR", "/srv/t2d2")
+    assert str(price_cache_dir()) == "/srv/t2d2/prices"

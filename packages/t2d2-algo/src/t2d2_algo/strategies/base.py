@@ -56,6 +56,11 @@ class StrategyConfig:
     half_year_lookback_days: int = 126
     year_lookback_days: int = 252
 
+    # Per-mode: only buy while the trend SMA is higher than trend_slope_days sessions earlier
+    require_rising_trend_sma: bool = True
+    trend_sma_days: int = 200
+    trend_slope_days: int = 20
+
     def __post_init__(self) -> None:
         if self.trigger not in TRIGGERS:
             raise ValueError(
@@ -85,6 +90,11 @@ class StrategyConfig:
                 f"Strategy {self.mode!r}: trade_weekday {self.trade_weekday!r} "
                 f"must be one of {', '.join(WEEKDAYS)}"
             )
+
+    @property
+    def trend_history_days(self) -> int:
+        """Trading days of prices needed to compare the trend SMA with its earlier value."""
+        return self.trend_sma_days + self.trend_slope_days
 
     @property
     def needs_long_history(self) -> bool:

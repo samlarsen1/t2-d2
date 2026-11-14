@@ -10,8 +10,11 @@ import asyncio
 import logging
 from datetime import date, timedelta
 
+import numpy as np
 import pandas as pd
 import yfinance as yf
+
+from ..cache import OHLCV_COLUMNS, PriceCache
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,15 @@ TICKER_OVERRIDES: dict[str, str] = {
     "ALV": "ALV.DE",
     "VWRP": "VWRP.L",
 }
+
+# Incremental fetches re-download this many of the latest cached bars and compare them
+CACHE_OVERLAP_BARS = 5
+# A cached close may differ from Yahoo's by this much before the cache is treated as stale.
+# Yahoo re-adjusts past prices after splits and dividends (auto_adjust=True)
+CACHE_CLOSE_RTOL = 1e-3
+# A cache counts as covering the window if its first bar is this close to the window start
+# (the start can fall on a weekend or holiday run)
+CACHE_START_SLACK_DAYS = 7
 
 
 # Yahoo quotes some markets in a minor unit (e.g. LSE in pence as "GBp").
@@ -101,11 +113,20 @@ class OHLCVData:
 
 
 class YahooFinanceProvider:
-    """Fetches OHLCV data from Yahoo Finance."""
+    """Fetches OHLCV data from Yahoo Finance.
 
-    def __init__(self, cache_ttl_seconds: int = 300) -> None:
+    Args:
+        cache_ttl_seconds: How long a fetch is reused in memory within one process.
+        price_cache: Optional on-disk cache of completed daily bars. When set, a ticker
+            whose cache covers the requested window only downloads its latest few days.
+    """
+
+    def __init__(
+        self, cache_ttl_seconds: int = 300, price_cache: PriceCache | None = None
+    ) -> None:
         self._cache: dict[str, tuple[float, OHLCVData]] = {}
         self._cache_ttl = cache_ttl_seconds
+        self._price_cache = price_cache
 
     def _cache_key(self, ticker: str, period_days: int) -> str:
         return f"{ticker}:{period_days}"
@@ -117,18 +138,9 @@ class YahooFinanceProvider:
         ts, _ = self._cache[key]
         return (time.time() - ts) < self._cache_ttl
 
-    def fetch(self, yahoo_ticker: str, period_days: int = 30) -> OHLCVData:
-        """Synchronous fetch — wraps yfinance download."""
-        key = self._cache_key(yahoo_ticker, period_days)
-        if self._is_cached(key):
-            return self._cache[key][1]
-
-        import time
-        today = date.today()
-        start = today - timedelta(days=period_days + 10)  # Buffer for weekends/holidays
-        # yfinance's `end` is exclusive: use tomorrow so today's (intraday) bar is included
-        end = today + timedelta(days=1)
-
+    @staticmethod
+    def _download(yahoo_ticker: str, start: date, end: date) -> pd.DataFrame:
+        """Download daily bars dated ``start`` ≤ date < ``end`` (yfinance's end is exclusive)."""
         try:
             df = yf.download(
                 yahoo_ticker,
@@ -147,6 +159,71 @@ class YahooFinanceProvider:
         # yfinance may return MultiIndex columns when fetching single ticker
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.droplevel(1)
+        return df
+
+    @staticmethod
+    def _overlap_matches(cached: pd.DataFrame, fresh: pd.DataFrame) -> bool:
+        """True if every date in both frames has (nearly) the same close."""
+        common = cached.index.intersection(fresh.index)
+        if common.empty:
+            return False
+        return bool(
+            np.allclose(
+                cached.loc[common, "Close"].astype(float),
+                fresh.loc[common, "Close"].astype(float),
+                rtol=CACHE_CLOSE_RTOL,
+            )
+        )
+
+    def _download_with_cache(
+        self, yahoo_ticker: str, start: date, today: date
+    ) -> pd.DataFrame:
+        """Download bars from ``start`` to today, reusing completed bars from the disk cache.
+
+        Today's bar may still be moving, so it is always downloaded and never cached.
+        """
+        end = today + timedelta(days=1)
+        cache = self._price_cache
+        if cache is None:
+            return self._download(yahoo_ticker, start, end)
+
+        cached = cache.load(yahoo_ticker, start, today)
+        covers_window = (
+            len(cached) > 0
+            and cached.index[0].date() <= start + timedelta(days=CACHE_START_SLACK_DAYS)
+        )
+        df: pd.DataFrame | None = None
+        if covers_window:
+            overlap_start = cached.index[-min(CACHE_OVERLAP_BARS, len(cached))].date()
+            fresh = self._download(yahoo_ticker, overlap_start, end)
+            if self._overlap_matches(cached, fresh):
+                older = cached[cached.index < fresh.index[0]]
+                df = pd.concat([older, fresh[OHLCV_COLUMNS]])
+                logger.debug(
+                    "Price cache hit for %s: %d cached + %d downloaded bars",
+                    yahoo_ticker, len(older), len(fresh),
+                )
+            else:
+                # Prices were re-adjusted (split or dividend): cached bars no longer line up
+                logger.info("Price cache stale for %s; downloading full history", yahoo_ticker)
+                cache.delete_ticker(yahoo_ticker)
+        if df is None:
+            df = self._download(yahoo_ticker, start, end)
+
+        completed = df[df.index.normalize() < pd.Timestamp(today)]
+        cache.save(yahoo_ticker, completed)
+        return df
+
+    def fetch(self, yahoo_ticker: str, period_days: int = 30) -> OHLCVData:
+        """Synchronous fetch — wraps yfinance download."""
+        key = self._cache_key(yahoo_ticker, period_days)
+        if self._is_cached(key):
+            return self._cache[key][1]
+
+        import time
+        today = date.today()
+        start = today - timedelta(days=period_days + 10)  # Buffer for weekends/holidays
+        df = self._download_with_cache(yahoo_ticker, start, today)
 
         data = OHLCVData(df.tail(period_days), yahoo_ticker, self._quote_currency(yahoo_ticker))
         self._cache[key] = (time.time(), data)

@@ -119,6 +119,9 @@ def load_strategy_configs(config_dir: Path) -> dict[str, StrategyConfig]:
             quarter_lookback_days=analysis_cfg.get("quarter_lookback_days", 63),
             half_year_lookback_days=analysis_cfg.get("half_year_lookback_days", 126),
             year_lookback_days=analysis_cfg.get("year_lookback_days", 252),
+            require_rising_trend_sma=mode_cfg.get("require_rising_trend_sma", True),
+            trend_sma_days=analysis_cfg.get("trend_sma_days", 200),
+            trend_slope_days=analysis_cfg.get("trend_slope_days", 20),
         )
         for mode, mode_cfg in raw["modes"].items()
     }
@@ -192,11 +195,17 @@ class AlgoEngine:
                 return skip(dip_miss)
             trigger = None
 
-        # 3. RSI gate — don't buy if momentum isn't oversold yet
+        # 3. Long-term uptrend — the trend SMA must be rising (unless the mode opts out)
+        if cfg.require_rising_trend_sma:
+            trend_miss = self._trend_sma_miss(signal)
+            if trend_miss is not None:
+                return skip(trend_miss)
+
+        # 4. RSI gate — don't buy if momentum isn't oversold yet
         if signal.rsi > cfg.rsi_max_buy:
             return skip(f"RSI {signal.rsi:.1f} above max {cfg.rsi_max_buy}")
 
-        # 4. Cash reserve check
+        # 5. Cash reserve check
         if available_cash <= cfg.min_cash_reserve_gbp:
             return skip(
                 f"Insufficient cash "
@@ -301,6 +310,21 @@ class AlgoEngine:
             return (
                 f"Weekly change {signal.weekly_change_pct:+.2f}% "
                 f"above threshold {cfg.min_weekly_dip_pct:+.2f}%"
+            )
+        return None
+
+    def _trend_sma_miss(self, signal: TrendSignal) -> str | None:
+        """Return why the rising-trend-SMA gate rejects ``signal``, or None if it passes."""
+        cfg = self.config
+        label = f"SMA{cfg.trend_sma_days}"
+        if signal.sma_trend is None or signal.sma_trend_prior is None:
+            return (
+                f"{label} slope unknown: needs {cfg.trend_history_days} days of prices"
+            )
+        if not signal.is_sma_trend_rising:
+            return (
+                f"{label} not rising: {signal.sma_trend:.4f} vs "
+                f"{signal.sma_trend_prior:.4f} {cfg.trend_slope_days} days ago"
             )
         return None
 
