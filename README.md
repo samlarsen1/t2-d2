@@ -43,9 +43,10 @@ Each run:
 `deep_value` ignores daily dips (its `trigger` is `long_term_downtrend`). It buys only when a stock is
 within 2% of its 52-week closing low, or has fallen at least 20% over the last quarter (~63 trading
 days) or 30% over the last half year (~126 trading days) and is still below its 50-day SMA. The RSI
-gate and the other risk limits still apply. Its tickers are evaluated only on Wednesdays, in the
-`eu_morning` and `us_morning` sessions (`trade_weekday` / `trade_sessions` in `strategy.yaml`); if
-that Wednesday is a holiday, the week is skipped. These tickers fetch a year of prices, and a ticker
+gate and the other risk limits still apply. Its tickers are evaluated only in the weekly
+`deep_value_midweek` session, Wednesdays at 15:15 London time while the EU and US markets are both
+open (`trade_weekday` / `trade_sessions` in `strategy.yaml`); if the UK or US market is closed that
+Wednesday, the week is skipped. These tickers fetch a year of prices, and a ticker
 listed for less than a year never counts as being at its 52-week low. When `max_trades_per_run`
 caps the buys, `deep_value` buys are ranked by their quarter or half-year fall (whichever is deeper),
 so a long slide isn't pushed out because the stock happens to be up that day.
@@ -62,6 +63,7 @@ Times are in each market's local time zone, so they follow daylight-saving chang
 | `eu_afternoon`     | 15:30 Europe/London       | 1 hour before London/Frankfurt close |
 | `us_morning`       | 10:00 America/New_York    | 30 min after NYSE/NASDAQ open    |
 | `us_afternoon`     | 15:00 America/New_York    | 1 hour before NYSE/NASDAQ close  |
+| `deep_value_midweek` | Wed only, 15:15 Europe/London | `deep_value` tickers only; ≥45 min after NYSE open, 75 min before London/Frankfurt close |
 | `daily_close_wrap` | 17:00 America/New_York    | End-of-day summary (after US close) |
 
 --------------------|---------------|----------------------------------|
@@ -229,7 +231,7 @@ A failed message is logged as `telegram_send_failed` and never stops the run. Le
 See `config/` for:
 - `stocks.yaml` — ticker lists by market; every ticker must set `strategy` (`deep_value` / `mild` / `moderate` / `aggressive`)
 - `strategy.yaml` — mode definitions and global risk limits, including `min_trade_floor_gbp`, which raises any smaller percentage-based trade to that amount without touching `min_cash_reserve_gbp`, and `limit_order_expiry_days`, the age at which the bot cancels its own unfilled limit buy orders. Limit orders are placed as good-till-cancel because Trading212 has no expiry date option, so expiry happens at the next trading session after that age. Orders placed by hand are never cancelled, and a ticker with an open order isn't bought again until that order fills or is cancelled.
-- `schedules.yaml` — which sessions are active and which markets they cover
+- `schedules.yaml` — which sessions are active and which markets they cover; a session's optional `strategies` list limits it to tickers on those strategies (e.g. `deep_value_midweek` only runs `deep_value`)
 
 ---
 

@@ -33,6 +33,17 @@ sessions:
     markets: [us]
     action: trade
 
+  deep_value_midweek:
+    # London/Frankfurt/Amsterdam and NYSE/NASDAQ are all open 14:30–16:30 London time (13:30 when
+    # US daylight saving starts/ends first). 15:15 is >=45 min after the US open and 75 min before
+    # the EU close, and clear of us_morning (15:00) and eu_afternoon (15:30).
+    schedule: "Wed 15:15 Europe/London"
+    description: Weekly deep_value check while EU and US markets are both open
+    enabled: true
+    markets: [uk, europe, us]       # A blackout date in any of these skips the week
+    strategies: [deep_value]        # Only evaluate tickers on these strategies (default: all)
+    action: trade
+
   daily_close_wrap:
     schedule: "Mon..Fri 17:00 America/New_York"  # after US close
     description: End-of-day portfolio summary
