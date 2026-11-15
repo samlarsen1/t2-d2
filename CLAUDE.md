@@ -2,6 +2,21 @@
 
 uv workspace (Python 3.12): `packages/` (t2d2-client, market-data, algo) + `services/scheduler`.
 
+## System context
+
+Part of the T2 droid system. The hub repo is `../t2-hq` (https://github.com/samlarsen1/t2-hq):
+read its `ARCHITECTURE.md` and `PLAN.md` before changing how this repo interacts with the others.
+Repos sit side by side under `~/dev/git/samlarsen1/t2/` (development) and `~/dev/apps/` (deployed).
+
+- `../t2-k2`: harvests gains from overbought holdings; places sell orders
+- `../t2-bb8`: harvests the Trading212 instrument list; metadata only
+- `../t2-3po`: advisory council; reviews theses, strategy and configuration; read-only
+- `../t2-hq`: hub; plan, architecture, orchestrator and Telegram interface (planned)
+
+T2-D2 is the buy side of the execution layer. It trades by the rules in `config/`, with no LLM and no approval step in the order path. `t2-3po` reads `config/stocks.yaml` and `config/strategy.yaml` to suggest changes; a suggestion only takes effect as a reviewed change to those files.
+This repo must keep working standalone: never import a sibling repo's code. Changes to the
+shared droid contract (run reports, exit codes, locks) are agreed in `t2-hq` first.
+
 ## Commands
 
 ```bash
