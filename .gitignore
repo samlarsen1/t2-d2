@@ -42,3 +42,6 @@ logs/
 
 # AI Tools
 .headroom/
+
+# Run reports, data and caches written by deployed runs
+var/

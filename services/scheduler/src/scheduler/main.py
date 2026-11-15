@@ -11,6 +11,11 @@ Orchestrates the full trading cycle:
   6. Log executed trades and a session summary; notify Telegram per trade
      (or that there were none) if configured
   7. Report-only sessions (daily_close_wrap) send a portfolio summary to Telegram
+
+Follows the T2 droid contract (t2-hq CONTRACT.md): every run writes a JSON run report and exits
+0 (ok), 1 (failed), 2 (configuration error) or 3 (skipped: blackout date, disabled session, or a
+lock held). Runs take the t2-d2 run lock, and the shared Trading212 account lock while they use
+the account.
 """
 from __future__ import annotations
 
@@ -20,6 +25,7 @@ import logging
 import os
 import sys
 from datetime import UTC, date, datetime, timedelta
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +38,7 @@ from t2d2_client import Trading212Client
 from t2d2_client.models import HistoricalOrder, Order, OrderStatus, OrderType
 from t2d2_market_data import PriceCache, TrendAnalyser, YahooFinanceProvider
 
+from scheduler.t2contract import Exit, RunReport, Skipped, run_lock, t212_lock
 from scheduler.telegram import (
     TelegramNotifier,
     format_cancelled_orders_message,
@@ -52,6 +59,12 @@ FETCH_SLACK_DAYS = 10
 CACHE_RETENTION_MARGIN_DAYS = 7
 
 log = structlog.get_logger()
+
+DROID = "t2-d2"
+
+
+class ConfigError(ValueError):
+    """The configuration or environment is invalid. Exits with ``Exit.CONFIG``."""
 
 
 def setup_logging() -> None:
@@ -105,7 +118,7 @@ def validate_stock_strategies(stocks: dict[str, Any], strategies: set[str]) -> N
             elif strategy not in strategies:
                 problems.append(f"{label}: unknown strategy {strategy!r}")
     if problems:
-        raise ValueError(
+        raise ConfigError(
             f"Invalid stocks.yaml (valid strategies: {', '.join(sorted(strategies))}): "
             + "; ".join(problems)
         )
@@ -144,7 +157,7 @@ def validate_strategy_sessions(
         if name not in sessions
     ]
     if problems:
-        raise ValueError("Invalid strategy.yaml trade_sessions: " + "; ".join(problems))
+        raise ConfigError("Invalid strategy.yaml trade_sessions: " + "; ".join(problems))
 
 
 def validate_session_strategies(
@@ -166,7 +179,7 @@ def validate_session_strategies(
         if name not in strategies
     ]
     if problems:
-        raise ValueError("Invalid schedules.yaml strategies: " + "; ".join(problems))
+        raise ConfigError("Invalid schedules.yaml strategies: " + "; ".join(problems))
 
 
 def active_tickers(
@@ -342,6 +355,9 @@ def tickers_with_open_orders(orders: list[Order], t212_to_symbol: dict[str, str]
 
 
 async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
+    missing = [name for name in ("T212_API_KEY", "T212_API_SECRET") if not os.getenv(name)]
+    if missing:
+        raise ConfigError(f"Missing environment variables: {', '.join(missing)}")
     api_key = os.environ["T212_API_KEY"]
     api_secret = os.environ["T212_API_SECRET"]
     base_url = os.getenv("T212_BASE_URL", "https://live.trading212.com")
@@ -349,18 +365,18 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     schedules = load_schedules_config()
     session_cfg = schedules["sessions"].get(session)
     if not session_cfg:
-        raise ValueError(f"Unknown session: {session}")
+        raise ConfigError(f"Unknown session: {session}")
 
     if not session_cfg.get("enabled", True):
         log.info("session_disabled", session=session)
-        return RunResult(session=session, available_cash_gbp=0.0)
+        raise Skipped(f"session {session} is disabled in schedules.yaml")
 
     markets: list[str] = session_cfg["markets"]
     action: str = session_cfg.get("action", "trade")
 
     if is_blackout(session_cfg, markets):
         log.info("skipping_blackout", session=session)
-        return RunResult(session=session, available_cash_gbp=0.0)
+        raise Skipped(f"today is a blackout date for {', '.join(markets)}")
 
     strategy_configs = load_strategy_configs(CONFIG_DIR)
     stocks_cfg = load_stocks_config()
@@ -371,6 +387,29 @@ async def run_trading_cycle(session: str, dry_run: bool) -> RunResult:
     # Global limits and analysis settings are the same in every mode's config
     shared_config = next(iter(strategy_configs.values()))
 
+    # Trading212 rate limits are per account, so take turns with the other droids. Nothing else
+    # runs on the event loop yet, so waiting for the lock here blocks nothing.
+    with t212_lock():
+        return await _trade(
+            session, dry_run, session_cfg, markets, action, strategy_configs, stocks_cfg, engines,
+            shared_config, api_key, api_secret, base_url,
+        )
+
+
+async def _trade(
+    session: str,
+    dry_run: bool,
+    session_cfg: dict[str, Any],
+    markets: list[str],
+    action: str,
+    strategy_configs: dict[str, StrategyConfig],
+    stocks_cfg: dict[str, Any],
+    engines: dict[str, AlgoEngine],
+    shared_config: StrategyConfig,
+    api_key: str,
+    api_secret: str,
+    base_url: str,
+) -> RunResult:
     async with Trading212Client(api_key=api_key, api_secret=api_secret, base_url=base_url) as client:  # noqa: E501
         # Fetch account state
         summary = await client.get_account_summary()
@@ -622,18 +661,100 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main() -> None:
-    setup_logging()
-    args = parse_args()
+def _version() -> str:
+    try:
+        return version("t2d2-scheduler")
+    except PackageNotFoundError:
+        return "unknown"
 
+
+def _decision(d: TradeDecision) -> dict[str, Any]:
+    return {
+        "ticker": d.ticker,
+        "t212_ticker": d.t212_ticker,
+        "strategy": d.strategy,
+        "should_trade": d.should_trade,
+        "reason": d.reason,
+        "trade_value_gbp": round(d.trade_value_gbp, 2),
+        "quantity": d.quantity,
+        "current_price": d.current_price,
+        "limit_price": d.limit_price,
+        "currency": d.currency,
+        "daily_change_pct": round(d.daily_change_pct, 2),
+        "weekly_change_pct": round(d.weekly_change_pct, 2),
+        "rsi": round(d.rsi, 2),
+    }
+
+
+def result_data(result: RunResult) -> dict[str, Any]:
+    """The run report's ``result`` section for a completed session."""
+    return {
+        "session": result.session,
+        "available_cash_gbp": round(result.available_cash_gbp, 2),
+        "deployed_gbp": round(result.total_deployed_gbp, 2),
+        "decisions": [_decision(d) for d in result.decisions],
+        "trades": [_decision(d) for d in result.executed_trades],
+    }
+
+
+def run(args: argparse.Namespace, report: RunReport) -> Exit:
+    """Run one session under the droid's run lock, recording the outcome in ``report``."""
+    try:
+        with run_lock(DROID):
+            result = asyncio.run(run_trading_cycle(args.session, args.dry_run))
+    except Skipped as exc:
+        log.info("run_skipped", session=args.session, reason=exc.reason)
+        return report.finish(Exit.SKIPPED, exc.reason, {"session": args.session})
+    except ConfigError as exc:
+        log.error("config_error", error=str(exc))
+        return report.finish(Exit.CONFIG, "configuration error", errors=[str(exc)])
+
+    print(result.summary())
+    mode = "simulated" if args.dry_run else "placed"
+    summary = (
+        f"{args.session}: {len(result.decisions)} decisions, {len(result.executed_trades)} "
+        f"trades {mode}, £{result.total_deployed_gbp:.2f} deployed"
+    )
+    return report.finish(
+        Exit.FAILED if result.errors else Exit.OK,
+        summary,
+        result_data(result),
+        errors=result.errors,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run one session, write its run report, and return the process exit code."""
+    setup_logging()
+    args = parse_args(argv)
     log.info("t2d2_starting", session=args.session, dry_run=args.dry_run)
 
-    result = asyncio.run(run_trading_cycle(args.session, args.dry_run))
-    print(result.summary())
+    report = RunReport(
+        droid=DROID,
+        version=_version(),
+        command=f"session {args.session}",
+        dry_run=args.dry_run,
+        argv=list(sys.argv[1:] if argv is None else argv),
+    )
+    try:
+        code = run(args, report)
+    except Exception as exc:
+        # Record the failure, then let the traceback reach the journal as before.
+        report.finish(Exit.FAILED, "run crashed", errors=[type(exc).__name__])
+        _write_report(report)
+        raise
+    _write_report(report)
+    return int(code)
 
-    if result.errors:
-        sys.exit(1)
+
+def _write_report(report: RunReport) -> None:
+    try:
+        path = report.write()
+    except OSError as exc:
+        log.error("run_report_failed", path=str(exc.filename), error=exc.strerror)
+    else:
+        log.info("run_report_written", path=str(path), status=report.to_dict()["status"])
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

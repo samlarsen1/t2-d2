@@ -1325,7 +1325,7 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "t2d2-scheduler"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "services/scheduler" }
 dependencies = [
     { name = "httpx" },
