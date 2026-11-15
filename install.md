@@ -49,8 +49,10 @@ uv --version
 
 ## 3. Clone the repository
 
-The repository is private, so give the Pi a read-only **deploy key** (an SSH key that can only
-read this one repository):
+Replace `<owner>` below with the GitHub account that hosts your copy of the repository. A public
+repository can simply be cloned over HTTPS (`git clone https://github.com/<owner>/t2-d2.git ~/t2-d2`).
+For a private one, give the Pi a read-only **deploy key** (an SSH key that can only read this one
+repository):
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/t2d2_deploy -N "" -C "t2d2-pi"
@@ -67,7 +69,7 @@ Host github.com
   IdentityFile ~/.ssh/t2d2_deploy
   IdentitiesOnly yes
 EOF
-git clone git@github.com:samlarsen1/t2-d2.git ~/t2-d2
+git clone git@github.com:<owner>/t2-d2.git ~/t2-d2
 ```
 
 ## 4. Install Python and dependencies
