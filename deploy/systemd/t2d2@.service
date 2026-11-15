@@ -1,0 +1,16 @@
+# Installed by t2-hq's bin/t2-deploy (through render.py), which replaces @APP_DIR@ with the
+# deployed app directory. %i is the session name from config/schedules.yaml.
+[Unit]
+Description=T2-D2 trading session %i
+Wants=network-online.target
+After=network-online.target time-sync.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@APP_DIR@
+Environment=T2D2_DATA_DIR=@APP_DIR@/var/data
+ExecStart=@APP_DIR@/.venv/bin/t2d2 --session %i
+# Exit code 3 means skipped (blackout date, disabled session or a lock held), not a failure.
+SuccessExitStatus=3
+# Stops a hung run (e.g. a network stall) from blocking the next one.
+TimeoutStartSec=15min

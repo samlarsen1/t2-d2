@@ -18,6 +18,10 @@ Why systemd timers rather than cron:
 
 All commands run **on the Pi, as your normal login user** (not root) unless stated otherwise.
 
+> **Running the whole T2 system?** Deploy with t2-hq's `bin/t2-deploy` instead (see the README's
+> Deployment section). It installs equivalent systemd *user* units. Use one method, never both,
+> or every session would place its orders twice.
+
 ---
 
 ## 1. Prerequisites
@@ -127,7 +131,9 @@ After=network-online.target time-sync.target
 Type=oneshot
 User=$USER
 WorkingDirectory=$HOME/t2-d2
-ExecStart=$HOME/t2-d2/.venv/bin/python services/scheduler/src/scheduler/main.py --session %i
+ExecStart=$HOME/t2-d2/.venv/bin/t2d2 --session %i
+# Exit code 3 means skipped (blackout date, disabled session or a lock held), not a failure
+SuccessExitStatus=3
 TimeoutStartSec=15min
 EOF
 ```

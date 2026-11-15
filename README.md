@@ -27,12 +27,13 @@ T2-D2 is the buy side of the execution layer. It trades by the rules in `config/
 ```
 t2-d2/
 ├── config/                  # Strategy, schedule, and stock configuration
+├── deploy/systemd/          # unit template + render.py, used by t2-hq's bin/t2-deploy
 ├── packages/
 │   ├── t2d2-client/         # Trading212 REST API client
 │   ├── t2d2-market-data/    # Market data providers + trend analysis
 │   └── t2d2-algo/           # Algorithm engine (mild → aggressive strategies)
 └── services/
-    └── scheduler/           # CLI entrypoint (run manually or via cron)
+    └── scheduler/           # `t2d2` CLI entrypoint; t2contract.py is vendored from t2-hq
 ```
 
 ---
@@ -117,14 +118,35 @@ uv sync --all-packages
 cp .env.example .env
 
 # Run a single trading cycle locally (dry-run)
-uv run python -m scheduler.main --session eu_morning --dry-run
+uv run t2d2 --session eu_morning --dry-run
 
 # Place real orders for this run only (overrides DRY_RUN=true in .env)
-uv run python -m scheduler.main --session eu_morning --no-dry-run
+uv run t2d2 --session eu_morning --no-dry-run
 ```
 
 `--dry-run` / `--no-dry-run` override `DRY_RUN` for a single run; with neither flag, `DRY_RUN`
 decides (default `true`).
+
+### Run reports, exit codes and locks
+
+T2-D2 follows the T2 droid contract (t2-hq `CONTRACT.md`):
+
+- **Run report.** Every run writes a JSON report to `var/runs/<UTC timestamp>-<command>.json`
+  (or `$T2_RUNS_DIR`). It records the version, command, start and end time, dry-run flag, status,
+  exit code, a one-line summary and errors. Its `result` holds the session, the cash available, every decision with its reason, and the trades placed or simulated. A session with errors is `failed`; a crash is recorded as `failed` before its traceback goes to the log. `--report PATH` writes it somewhere else.
+- **Exit codes:** `0` success, `1` the run failed, `2` configuration or usage error, `3` skipped
+  (a blackout date, a disabled session, or a lock is held).
+- **One run at a time.** A second run while one is in progress exits `3` at once.
+- **The Trading212 account is shared.** Before calling Trading212 a run waits for the account lock,
+  which every droid takes, so droids on independent timers don't trip the per-account rate limits.
+  If it is still held after 10 minutes (`T2_T212_LOCK_TIMEOUT`, in seconds), the run exits `3`.
+
+Locks live in `/run/user/<uid>/t2` (or `$T2_LOCK_DIR`).
+
+```bash
+uv run t2d2 --session eu_morning --dry-run
+ls var/runs/
+```
 
 ### Development
 
@@ -215,9 +237,14 @@ Dependabot checks weekly for newer GitHub Actions versions and opens a pull requ
 in the last 7 days. It doesn't cover Python packages: upgrade those with `uv lock` and rely on
 `pip-audit` to flag vulnerable ones.
 
-### Running on a Schedule (Raspberry Pi / Linux)
+### Running on a Schedule
 
-See [install.md](install.md) for installing from GitHub with uv and running every session automatically with systemd timers.
+Two ways, never both on the same machine (each would place the session's orders):
+
+- **With the T2 system:** deploy with t2-hq's `bin/t2-deploy`, which installs systemd *user* units.
+  See [Deployment](#deployment).
+- **Standalone, for example on a Raspberry Pi:** follow [install.md](install.md), which installs
+  system units by hand.
 
 ---
 
@@ -291,6 +318,37 @@ rm -rf data/prices
 
 ---
 
+## Deployment
+
+t2-d2 is deployed with t2-hq's `bin/t2-deploy`, which checks out a release tag in
+`$T2_APPS/t2-d2`, builds its virtual environment and installs the systemd user units in
+`deploy/systemd/`:
+
+```bash
+# From the t2-hq checkout
+bin/t2-deploy release t2-d2 v0.2.0   # tag a clean, tested main and push the tag
+bin/t2-deploy deploy t2-d2           # deploy the newest tag
+bin/t2-deploy status
+```
+
+The units are rendered from `config/schedules.yaml` by `deploy/systemd/render.py`: one
+`t2d2@.service` that runs a session, and one `t2d2-<session>.timer` per enabled session. A session
+missed while the machine was off or asleep is skipped rather than fired late. Deployed runs keep
+the price cache in `var/data`. Whether they place real orders is decided by `DRY_RUN` in the app's
+`.env`, as for a manual run.
+
+`bin/t2-deploy` refuses to install the user units while system units from [install.md](install.md)
+exist, so a session can never be scheduled twice. To move from system units to the deploy:
+
+```bash
+for t in /etc/systemd/system/t2d2-*.timer; do sudo systemctl disable --now "$(basename "$t")"; done
+sudo rm /etc/systemd/system/t2d2-*.timer /etc/systemd/system/t2d2@.service
+sudo systemctl daemon-reload
+```
+
+The deploy never creates, reads or edits `.env`: write `$T2_APPS/t2-d2/.env` from `.env.example`
+first, or the deploy stops before enabling anything.
+
 ## Environment Variables
 
 | Variable                  | Description                                  |
@@ -300,6 +358,9 @@ rm -rf data/prices
 | `DRY_RUN`                 | `true` (default) simulates without placing orders; `false` places real orders. Overridden by `--dry-run` / `--no-dry-run` |
 | `TELEGRAM_BOT_TOKEN`      | Optional. Telegram bot token from @BotFather; with `TELEGRAM_CHAT_ID`, sends a message per executed trade (or "no trades today") and a daily wrap summary |
 | `T2D2_DATA_DIR`           | Optional. Folder for cached market data (default: `data/` in the repo); prices go in `prices/` inside it (see [Price cache](#price-cache)) |
+| `T2_RUNS_DIR`             | Where run reports go (default `var/runs`) |
+| `T2_LOCK_DIR`             | Where the run and Trading212 locks live (default `/run/user/<uid>/t2`) |
+| `T2_T212_LOCK_TIMEOUT`    | Seconds to wait for the shared Trading212 lock before skipping (default `600`) |
 | `TELEGRAM_CHAT_ID`        | Optional. Chat to send trade messages to (see [Telegram Notifications](#telegram-notifications)) |
 
 ---
