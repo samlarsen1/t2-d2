@@ -6,18 +6,17 @@ A fully automated, schedule-driven DCA (Dollar Cost Averaging) trading bot for T
 
 ## Part of the T2 system
 
-This repo is one of the T2 droids, coordinated from
-[t2-hq](https://github.com/samlarsen1/t2-hq), which holds the system
-[architecture](https://github.com/samlarsen1/t2-hq/blob/main/ARCHITECTURE.md) and
-[plan](https://github.com/samlarsen1/t2-hq/blob/main/PLAN.md).
+This repo is one of the T2 droids, coordinated from the `t2-hq` repo, which holds the system
+architecture (`ARCHITECTURE.md`) and plan (`PLAN.md`). All the T2 repos live under the same
+GitHub owner as this one.
 
 | Repo | Role |
 |---|---|
 | **t2-d2** (this repo) | buys dips; places buy orders on its own timers |
-| [t2-k2](https://github.com/samlarsen1/t2-k2) | harvests gains from overbought holdings; places sell orders |
-| [t2-bb8](https://github.com/samlarsen1/t2-bb8) | harvests the Trading212 instrument list; metadata only |
-| [t2-3po](https://github.com/samlarsen1/t2-3po) | advisory council; reviews theses, strategy and configuration; read-only |
-| [t2-hq](https://github.com/samlarsen1/t2-hq) | hub: plan, architecture, and the orchestrator and Telegram interface (planned) |
+| `t2-k2` | harvests gains from overbought holdings; places sell orders |
+| `t2-bb8` | harvests the Trading212 instrument list; metadata only |
+| `t2-3po` | advisory council; reviews theses, strategy and configuration; read-only |
+| `t2-hq` | hub: plan, architecture, and the orchestrator and Telegram interface (planned) |
 
 T2-D2 is the buy side of the execution layer. It trades by the rules in `config/`, with no LLM and no approval step in the order path. `t2-3po` reads `config/stocks.yaml` and `config/strategy.yaml` to suggest changes; a suggestion only takes effect as a reviewed change to those files. It runs on its own and doesn't need the other repos to be running.
 
@@ -174,7 +173,7 @@ further slashes and Dependabot's names have them (`dependabot/pip/foo-1.2.3`).
 
 ```bash
 # Show which rules apply to a branch name
-gh api repos/samlarsen1/t2-d2/rules/branches/task/my-change --jq '.[].type'
+gh api repos/<owner>/t2-d2/rules/branches/task/my-change --jq '.[].type'
 ```
 
 #### Vulnerability scanning
