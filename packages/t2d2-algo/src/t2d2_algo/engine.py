@@ -406,6 +406,7 @@ class TradeExecutor:
         self.dry_run = dry_run
 
     async def execute(self, decision: TradeDecision) -> bool:
+        """Place the decision's order; on success, record Trading212's order id on it."""
         if self.dry_run:
             logger.info("[DRY RUN] Would execute: %s", decision)
             return True
@@ -415,18 +416,19 @@ class TradeExecutor:
         try:
             # Limit price is only set for decisions from limit-order strategies
             if decision.limit_price is not None:
-                await self.client.place_limit_order(
+                order = await self.client.place_limit_order(
                     ticker=t212_ticker,
                     quantity=decision.quantity,
                     limit_price=decision.limit_price,
                     time_validity=TimeValidity.GTC,
                 )
             else:
-                await self.client.place_market_order(
+                order = await self.client.place_market_order(
                     ticker=t212_ticker,
                     quantity=decision.quantity,
                 )
-            logger.info("Executed: %s", decision)
+            decision.order_id = order.id
+            logger.info("Executed: %s (order %s)", decision, order.id)
             return True
         except Exception as e:
             logger.error("Failed to execute %s: %s", decision.ticker, e)

@@ -599,6 +599,7 @@ async def _trade(
                 log.info(
                     "trade_executed",
                     ticker=decision.ticker,
+                    order_id=decision.order_id,
                     strategy=decision.strategy,
                     action="BUY",
                     value_gbp=round(decision.trade_value_gbp, 2),
@@ -683,6 +684,7 @@ def _decision(d: TradeDecision) -> dict[str, Any]:
         "daily_change_pct": round(d.daily_change_pct, 2),
         "weekly_change_pct": round(d.weekly_change_pct, 2),
         "rsi": round(d.rsi, 2),
+        "order_id": d.order_id,
     }
 
 

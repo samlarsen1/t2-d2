@@ -135,6 +135,8 @@ class TradeDecision:
     currency: str | None = None  # Quote currency of current/limit price
     # Ranking key across modes, most negative first; None falls back to the daily/weekly blend
     downtrend_score: float | None = None
+    # Trading212 order id, set once the order is placed (None in a dry run or before placing)
+    order_id: int | None = None
 
     def __str__(self) -> str:
         label = f"{self.ticker} [{self.strategy}]" if self.strategy else self.ticker

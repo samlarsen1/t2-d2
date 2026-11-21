@@ -133,7 +133,7 @@ T2-D2 follows the T2 droid contract (t2-hq `CONTRACT.md`):
 
 - **Run report.** Every run writes a JSON report to `var/runs/<UTC timestamp>-<command>.json`
   (or `$T2_RUNS_DIR`). It records the version, command, start and end time, dry-run flag, status,
-  exit code, a one-line summary and errors. Its `result` holds the session, the cash available, every decision with its reason, and the trades placed or simulated. A session with errors is `failed`; a crash is recorded as `failed` before its traceback goes to the log. `--report PATH` writes it somewhere else.
+  exit code, a one-line summary and errors. Its `result` holds the session, the cash available, every decision with its reason, and the trades placed or simulated; each placed trade carries Trading212's `order_id` (`null` in a dry run), so the trade ledger in t2-hq can match it to Trading212's order history. A session with errors is `failed`; a crash is recorded as `failed` before its traceback goes to the log. `--report PATH` writes it somewhere else.
 - **Exit codes:** `0` success, `1` the run failed, `2` configuration or usage error, `3` skipped
   (a blackout date, a disabled session, or a lock is held).
 - **One run at a time.** A second run while one is in progress exits `3` at once.
