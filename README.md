@@ -16,7 +16,7 @@ GitHub owner as this one.
 | `t2-k2` | harvests gains from overbought holdings; places sell orders |
 | `t2-bb8` | harvests the Trading212 instrument list; metadata only |
 | `t2-3po` | advisory council; reviews theses, strategy and configuration; read-only |
-| `t2-hq` | hub: plan, architecture, and the orchestrator and Telegram interface (planned) |
+| `t2-hq` | hub: plan, architecture, and the orchestrator and Telegram interface |
 
 T2-D2 is the buy side of the execution layer. It trades by the rules in `config/`, with no LLM and no approval step in the order path. `t2-3po` reads `config/stocks.yaml` and `config/strategy.yaml` to suggest changes; a suggestion only takes effect as a reviewed change to those files. It runs on its own and doesn't need the other repos to be running.
 
@@ -50,12 +50,14 @@ Each run:
 
 ### Strategy Modes
 
-| Mode       | Min Dip | Max Position Increase | Max Cash Deployed per Run |
-|------------|---------|----------------------|--------------------------|
-| deep_value | long-term downtrend (see below) | 3% of position | 3% of available cash |
-| mild       | -3%     | 5% of position       | 10% of available cash    |
-| moderate   | -2%     | 10% of position      | 25% of available cash    |
-| aggressive | -1%     | 20% of position      | 50% of available cash    |
+Source of truth: `config/strategy.yaml`. The figures below are its current values.
+
+| Mode       | Min Dip | Max Position Increase | Max Cash Deployed per Run | Max Portfolio Weight |
+|------------|---------|----------------------|--------------------------|----------------------|
+| deep_value | long-term downtrend (see below) | 3% of position | 3% of available cash | 7.5% |
+| mild       | -3% daily and -4% weekly | 5% of position | 5% of available cash | 10% |
+| moderate   | -2% daily | 10% of position | 10% of available cash | 12.5% |
+| aggressive | -1% daily | 15% of position | 15% of available cash | 17.5% |
 
 `deep_value` ignores daily dips (its `trigger` is `long_term_downtrend`). It buys only when a stock is
 within 2% of its 52-week closing low, or has fallen at least 20% over the last quarter (~63 trading
@@ -91,13 +93,6 @@ Times are in each market's local time zone, so they follow daylight-saving chang
 | `us_afternoon`     | 15:00 America/New_York    | 1 hour before NYSE/NASDAQ close  |
 | `deep_value_midweek` | Wed only, 15:15 Europe/London | `deep_value` tickers only; ≥45 min after NYSE open, 75 min before London/Frankfurt close |
 | `daily_close_wrap` | 17:00 America/New_York    | End-of-day summary (after US close) |
-
---------------------|---------------|----------------------------------|
-| EU Morning Open    | `30 7 * * 1-5` | London/Frankfurt open (8:30 BST) |
-| EU Afternoon       | `0 13 * * 1-5` | Mid-session rebalance            |
-| US Morning Open    | `30 14 * * 1-5`| NYSE/NASDAQ open (9:30 ET)       |
-| US Afternoon       | `30 18 * * 1-5`| US midday check (1:30 PM ET)     |
-| EU/US Close Wrap   | `0 21 * * 1-5` | End-of-day summary               |
 
 ---
 
