@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from t2d2_algo.engine import AlgoEngine, TradeExecutor, load_strategy_configs
 from t2d2_algo.strategies.base import StrategyConfig, TradeDecision
-from t2d2_client.models import TimeValidity
+from t2d2_client.models import Order, OrderType, TimeValidity
 from t2d2_market_data.analysis import TrendSignal
 
 REPO_ROOT = Path(__file__).parents[3]
@@ -286,11 +286,18 @@ class _FakeClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
-    async def place_limit_order(self, **kwargs: Any) -> None:
-        self.calls.append(("limit", kwargs))
+    def _order(self, kind: str, kwargs: dict[str, Any]) -> Order:
+        self.calls.append((kind, kwargs))
+        order_type = OrderType.LIMIT if kind == "limit" else OrderType.MARKET
+        return Order.model_validate(
+            {"id": 1000 + len(self.calls), "ticker": kwargs["ticker"], "type": order_type}
+        )
 
-    async def place_market_order(self, **kwargs: Any) -> None:
-        self.calls.append(("market", kwargs))
+    async def place_limit_order(self, **kwargs: Any) -> Order:
+        return self._order("limit", kwargs)
+
+    async def place_market_order(self, **kwargs: Any) -> Order:
+        return self._order("market", kwargs)
 
 
 @pytest.mark.parametrize(
@@ -313,6 +320,7 @@ async def test_executor_order_type_follows_decision_strategy(
 
     assert await executor.execute(decision)
     assert [call for call, _ in client.calls] == [expected_call]
+    assert decision.order_id == 1001
 
 
 def _buy(fx_rate: float | None, latest_price: float, **config: object) -> TradeDecision:
@@ -684,3 +692,25 @@ def test_long_term_score_uses_dip_blend_when_shallower_than_long_moves() -> None
     decision = evaluate_long_term(signal)
 
     assert decision.downtrend_score == pytest.approx(-4.0 * 0.4 + -6.0 * 0.6)
+
+
+async def test_dry_run_records_no_order_id() -> None:
+    decision = _buy(fx_rate=None, latest_price=100.0)
+    client = _FakeClient()
+    executor = TradeExecutor(client=client, dry_run=True)  # type: ignore[arg-type]
+
+    assert await executor.execute(decision)
+    assert client.calls == []
+    assert decision.order_id is None
+
+
+async def test_failed_order_records_no_order_id() -> None:
+    class _Failing(_FakeClient):
+        def _order(self, kind: str, kwargs: dict[str, Any]) -> Order:
+            raise RuntimeError("rejected")
+
+    decision = _buy(fx_rate=None, latest_price=100.0)
+    executor = TradeExecutor(client=_Failing(), dry_run=False)  # type: ignore[arg-type]
+
+    assert not await executor.execute(decision)
+    assert decision.order_id is None

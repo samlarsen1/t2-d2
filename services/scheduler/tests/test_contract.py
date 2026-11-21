@@ -85,3 +85,19 @@ def test_crash_is_reported_then_raised(
         main.main(["--session", "eu_morning"])
     report = only_report(t2_contract_dirs)
     assert (report["status"], report["errors"]) == ("failed", ["TimeoutError"])
+
+
+def test_trades_carry_their_trading212_order_id() -> None:
+    from t2d2_algo.strategies.base import TradeDecision
+
+    trade = TradeDecision(
+        ticker="RIO", should_trade=True, trade_value_gbp=100.0, reason="dip",
+        daily_change_pct=-3.5, weekly_change_pct=-5.0, rsi=40.0, current_price=4800.0,
+        order_id=42,
+    )
+    skip = TradeDecision(
+        ticker="NG.", should_trade=False, trade_value_gbp=0.0, reason="no dip",
+        daily_change_pct=0.1, weekly_change_pct=0.2, rsi=50.0, current_price=1200.0,
+    )
+    assert main._decision(trade)["order_id"] == 42
+    assert main._decision(skip)["order_id"] is None
